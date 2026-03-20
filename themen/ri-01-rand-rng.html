@@ -3,18 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Rand &amp; RNG — RW Internals</title>
+<title>Rand &amp; RNG &mdash; RW Internals</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<a class="back-link" href="../001-room-temperatur-equalization.html">&larr; Zur&uuml;ck zur Anfrage</a>
+<a class="back-link" href="../002-room-temperatur-equalization-v2.html">&larr; Zur&uuml;ck zur Anfrage</a>
 
 <div class="header">
   <div class="meta">
-    <span>Namespace: Verse</span>
+    <span class="topic-id">RI-01</span>
+    <span class="namespace">Namespace: Verse</span>
   </div>
   <h1>Rand &amp; RNG</h1>
+  <p class="subtitle">Determinismus-Fundament von RimWorld &mdash; 12 Kern-Mechanismen</p>
 </div>
 
 <div class="box box-danger">
@@ -38,31 +40,77 @@
 
 <div class="entry">
   <span class="entry-id">#3</span>
-  <span class="entry-title">State Stack PushState/PopState</span>
-  <span class="entry-file">Verse/Rand.cs:440-454</span>
-  <p class="entry-desc">Stack-basiertes State-Management: PushState() speichert aktuellen seed+iterations auf Stack und setzt neuen Seed. PopState() stellt alten State wieder her. MUSS f&uuml;r UI/nicht-gameplay Rand verwendet werden.</p>
+  <span class="entry-title">Initialisierung &amp; Seed</span>
+  <span class="entry-file">Verse/Rand.cs</span>
+  <p class="entry-desc">Seed wird beim Spielstart gesetzt. <code>iterations</code> beginnt bei 0 und z&auml;hlt monoton hoch. Nach einem Save/Load ist TicksGame identisch, aber der Rand-State wird <strong>nicht</strong> gespeichert &mdash; er ergibt sich aus der exakten Replay-Sequenz.</p>
+  <p class="entry-connections">Verbindung: &rarr; RI-02.08 (TickManager ExposeData)</p>
 </div>
 
 <div class="entry">
   <span class="entry-id">#4</span>
+  <span class="entry-title">State Stack &mdash; PushState/PopState</span>
+  <span class="entry-file">Verse/Rand.cs:440-454</span>
+  <p class="entry-desc">Stack-basiertes State-Management: PushState() speichert aktuellen seed+iterations auf Stack und setzt neuen Seed. PopState() stellt alten State wieder her. <strong>MUSS</strong> f&uuml;r UI/nicht-gameplay Rand verwendet werden.</p>
+  <p class="entry-modding">Eigene Mods: immer PushState/PopState um visuellen Zufall (Partikel, UI) vom Gameplay-Rand zu isolieren.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#5</span>
+  <span class="entry-title">RandBlock (using-Pattern)</span>
+  <span class="entry-file">Verse/Rand.cs</span>
+  <p class="entry-desc">Convenience-Wrapper: <code>using(new RandBlock(seed)) { ... }</code> ruft automatisch PushState/PopState auf. Sicherer als manuelles Push/Pop da Exceptions den State nicht korrumpieren.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#6</span>
   <span class="entry-title">Value &amp; Basis-Operationen</span>
   <span class="entry-file">Verse/Rand.cs:35-51</span>
   <p class="entry-desc">Rand.Value &rarr; float [0,1). Rand.Int, Rand.Bool, Rand.Range(min,max). Jeder Aufruf erh&ouml;ht iterations. Rand.Chance(f) = Value &lt; f.</p>
 </div>
 
 <div class="entry">
-  <span class="entry-id">#5</span>
+  <span class="entry-id">#7</span>
+  <span class="entry-title">Seeded Varianten</span>
+  <span class="entry-file">Verse/Rand.cs</span>
+  <p class="entry-desc"><code>Rand.ValueSeeded(seed)</code> &mdash; erzeugt einen deterministischen Wert basierend auf einem expliziten Seed, <strong>ohne</strong> den globalen State zu ver&auml;ndern. Wird z.B. von Need_Food verwendet.</p>
+  <p class="entry-desc"><span class="tag tag-mp">MP-Kritisch</span> &mdash; Obwohl stateless, muss der Input-Seed auf allen Clients identisch sein.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#8</span>
   <span class="entry-title">MTBEventOccurs</span>
   <span class="entry-file">Verse/Rand.cs:509-554</span>
   <p class="entry-desc"><span class="tag tag-mp">MP-Kritisch</span> &mdash; Mean Time Between Events: Berechnet Wahrscheinlichkeit pro Tick basierend auf MTB-Tagen. Verbraucht einen Rand.Value-Call. Wird massiv genutzt (Krankheiten, Mental Breaks, Events).</p>
 </div>
 
 <div class="entry">
-  <span class="entry-id">#6</span>
+  <span class="entry-id">#9</span>
+  <span class="entry-title">RandSeedForHour</span>
+  <span class="entry-file">Verse/Rand.cs</span>
+  <p class="entry-desc">Thing-Extension: Generiert einen Seed basierend auf <code>Thing.thingIDNumber</code> + <code>GenTicks.TicksAbs / 2500</code>. Gibt pro Stunde Spielzeit einen stabilen Seed &mdash; wird f&uuml;r stundenweise Variation genutzt (z.B. Wanderer-Richtung).</p>
+  <p class="entry-connections">Verbindung: &rarr; RI-02.09 (TicksAbs)</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#10</span>
+  <span class="entry-title">ValueAsync (Stateless)</span>
+  <span class="entry-file">Verse/Rand.cs</span>
+  <p class="entry-desc">Einzelwert-Berechnung ohne globalen State: <code>MurmurHash.GetInt(seed, 0)</code>. F&uuml;r F&auml;lle wo ein einzelner deterministischer Wert gebraucht wird ohne den Rand-Counter zu belasten.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#11</span>
   <span class="entry-title">Gaussian, ByCurve, InsideUnitCircle</span>
   <span class="entry-file">Verse/Rand.cs:137-507</span>
-  <p class="entry-desc">Erweiterte Zufallsfunktionen: Gaussian (Box-Muller, 2 Rand-Calls), ByCurve (gewichtete Kurve), InsideUnitCircle/InsideUnitCircleVec3 (Rejection Sampling, variable Rand-Calls).</p>
-  <p class="entry-connections">InsideUnitCircle verbraucht variable Anzahl Rand-Calls je nach Rejection &mdash; besonders desync-gef&auml;hrlich.</p>
+  <p class="entry-desc">Erweiterte Zufallsfunktionen: Gaussian (Box-Muller, <strong>2 Rand-Calls</strong>), ByCurve (gewichtete Kurve), InsideUnitCircle/InsideUnitCircleVec3 (Rejection Sampling, <strong>variable Rand-Calls</strong>).</p>
+  <p class="entry-desc"><span class="tag tag-mp">MP-Kritisch</span> &mdash; InsideUnitCircle verbraucht variable Anzahl Rand-Calls je nach Rejection &mdash; besonders desync-gef&auml;hrlich.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#12</span>
+  <span class="entry-title">Range, Chance, Element Utilities</span>
+  <span class="entry-file">Verse/Rand.cs</span>
+  <p class="entry-desc"><code>Rand.Range(min, max)</code>, <code>Rand.Chance(float)</code>, <code>list.RandomElement()</code>, <code>list.RandomElementByWeight()</code>. Alle verbrauchen mindestens 1 Rand-Call. <code>TryRandomElement</code> verbraucht 0 Calls wenn Liste leer ist.</p>
 </div>
 
 <div class="footer">

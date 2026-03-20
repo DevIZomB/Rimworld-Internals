@@ -3,25 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Health, Damage &amp; Injury — RW Internals</title>
+<title>Health, Damage &amp; Injury &mdash; RW Internals</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<a class="back-link" href="../001-room-temperature-equalization-en.html">&larr; Back to query</a>
+<a class="back-link" href="../002-room-temperature-equalization-v2-en.html">&larr; Back to query</a>
 
 <div class="header">
   <div class="meta">
-    <span>Namespace: Verse</span>
+    <span class="topic-id">RI-14</span>
+    <span class="namespace">Namespace: Verse</span>
   </div>
   <h1>Health, Damage &amp; Injury</h1>
+  <p class="subtitle">Damage pipeline, hediffs and temperature effects</p>
 </div>
 
 <div class="entry">
   <span class="entry-id">#1</span>
   <span class="entry-title">Pawn_HealthTracker</span>
   <span class="entry-file">Verse/Pawn_HealthTracker.cs:1-~1200</span>
-  <p class="entry-desc">Health manager for each pawn. Manages state (Mobile/Down/Dead), AddHediff pipeline and CheckForStateChange after each damage or hediff update.</p>
+  <p class="entry-desc">Health manager for every pawn. Manages state (Mobile/Down/Dead), AddHediff pipeline and CheckForStateChange after each damage or hediff update.</p>
   <p class="entry-modding">PreApplyDamage Harmony prefix for damage reduction.</p>
 </div>
 
@@ -36,7 +38,7 @@
   <span class="entry-id">#3</span>
   <span class="entry-title">DamageWorker_AddInjury</span>
   <span class="entry-file">Verse/DamageWorker_AddInjury.cs:1-383</span>
-  <p class="entry-desc">Pawn-specific damage: armor penetration, damage propagation through body parts, instant-kill protection. <span class="tag tag-mp">MP-Critical</span> &mdash; Rand in instant-kill protection.</p>
+  <p class="entry-desc">Pawn-specific damage: armor penetration, damage propagation through body parts, instant-kill protection. <span class="tag tag-mp">MP-Critical</span> &mdash; Rand in instant-kill protection and body part selection.</p>
 </div>
 
 <div class="entry">
@@ -48,13 +50,34 @@
 
 <div class="entry">
   <span class="entry-id">#5</span>
-  <span class="entry-title">HealthTuning</span>
+  <span class="entry-title">HealthTuning (Constants)</span>
   <span class="entry-file">Verse/HealthTuning.cs:1-150</span>
   <p class="entry-desc">Central constants: HealPerDay = 8 (Tend) + 4 (Natural) + 8 (ImmunityGainSpeed), PainShock threshold = 0.8, Permanent chance = 2%.</p>
 </div>
 
+<div class="entry">
+  <span class="entry-id">#6</span>
+  <span class="entry-title">Temperature Hediffs</span>
+  <span class="entry-file">RimWorld/HediffGiver_Heat.cs, RimWorld/HediffGiver_Hypothermia.cs</span>
+  <p class="entry-desc">Automatic hediff assignment based on room temperature vs. <code>SafeTemperatureRange</code>:</p>
+  <table>
+    <tr><th>Condition</th><th>Hediff</th><th>Mechanism</th></tr>
+    <tr><td>Temp &gt; SafeMax</td><td><code>Heatstroke</code></td><td>Severity increases proportional to overshoot</td></tr>
+    <tr><td>Temp &lt; SafeMin</td><td><code>Hypothermia</code></td><td>Severity increases proportional to undershoot</td></tr>
+  </table>
+  <p class="entry-desc"><code>SafeTemperatureRange</code> = <code>ComfortableTemperatureRange</code> &plusmn; 10&deg;C. Apparel (parka, duster) extends the range. Genes can also shift it.</p>
+  <p class="entry-connections">Connection: &rarr; Temperature System (v2 main page), &rarr; RI-06 (Pawn)</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#7</span>
+  <span class="entry-title">Rot Rate (Decay)</span>
+  <span class="entry-file">Verse/GenTemperature.cs</span>
+  <p class="entry-desc">Temperature-dependent decay: 0&deg;C &rarr; 0% decay, 10&deg;C &rarr; 100% decay. Linear. Below 0&deg;C = frozen = no decay. Coolers (&lt;10&deg;C) slow down, freezers (&lt;0&deg;C) completely stop decay.</p>
+</div>
+
 <div class="footer">
-  <span>RimWorld Internals &mdash; Knowledge Sync</span>
+  <span>RimWorld Internals &mdash; Wissen Sync</span>
   <span>RimWorld 1.6.4633 rev1261</span>
 </div>
 
