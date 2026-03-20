@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Thing Hierarchy &mdash; RW Internals</title>
+<title>Thing Hierarchy — RW Internals</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,82 +16,34 @@
     <span class="namespace">Namespace: Verse</span>
   </div>
   <h1>Thing Hierarchy</h1>
-  <p class="subtitle">Base class of all game objects &mdash; 10 core mechanisms</p>
+  <p class="subtitle">Temperature dependency: Spawn/DeSpawn triggers room rebuild</p>
+</div>
+
+<div class="box box-danger">
+  <div class="label">Temperature &rarr; Thing Connection</div>
+  When a building (wall, door, vent) is spawned or despawned, it triggers a
+  <strong>room rebuild</strong> &rarr; <code>RegenerateEqualizationData</code> &rarr; <code>equalizeCells.Shuffle()</code> &rarr; Rand calls.
 </div>
 
 <div class="entry">
   <span class="entry-id">#1</span>
-  <span class="entry-title">Thing Core Fields &amp; State Machine</span>
-  <span class="entry-file">Verse/Thing.cs:17-69</span>
-  <p class="entry-desc">Core fields of every thing: <code>thingIDNumber</code>, <code>def</code>, <code>mapIndexOrState</code> (state machine: -3=Discarded, -2=Destroyed, -1=Unspawned, &ge;0=Map-Index).</p>
+  <span class="entry-title">SpawnSetup &rarr; RegionDirtyer</span>
+  <span class="entry-file">Verse/Thing.cs:803-928</span>
+  <p class="entry-desc">When spawning a thing, 15+ subsystems are registered. Temperature-relevant:</p>
+  <table>
+    <tr><th>Subsystem</th><th>Temperature Link</th></tr>
+    <tr><td><code>RegionDirtyer</code></td><td>Marks regions as dirty &rarr; room rebuild &rarr; new equalizeCells</td></tr>
+    <tr><td><code>edificeGrid</code></td><td>Walls register here &rarr; affects wall equalization</td></tr>
+    <tr><td><code>mapTemperature</code></td><td>Direct notification of the temperature system</td></tr>
+  </table>
+  <p class="entry-desc"><span class="tag tag-mp">MP-Critical</span> &mdash; Registration order is fixed. If a mod changes spawn order, it can trigger room rebuilds at different times.</p>
 </div>
 
 <div class="entry">
   <span class="entry-id">#2</span>
-  <span class="entry-title">DoTick Dispatch</span>
-  <span class="entry-file">Verse/Thing.cs</span>
-  <p class="entry-desc">TickList calls <code>thing.DoTick()</code>, which dispatches to <code>Tick()</code>, <code>TickRare()</code> or <code>TickLong()</code> based on <code>def.tickerType</code>. Normal = every tick, Rare = every 250, Long = every 2000.</p>
-  <p class="entry-connections">Connection: &rarr; RI-02.03 (TickList Bucket System)</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#3</span>
-  <span class="entry-title">SpawnSetup</span>
-  <span class="entry-file">Verse/Thing.cs:803-928</span>
-  <p class="entry-desc">15+ subsystem registrations on spawn: ThingGrid, RegionDirtyer, ListerThings, CoverGrid, edificeGrid, GlowGrid, MapMeshDirty, gasGrid, mapTemperature, TickManager, etc. Order is fixed.</p>
-  <p class="entry-desc"><span class="tag tag-mp">MP-Critical</span> &mdash; SpawnSetup triggers RegionDirtyer &rarr; room rebuild &rarr; equalizeCells.Shuffle() &rarr; Rand call.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#4</span>
-  <span class="entry-title">DeSpawn</span>
+  <span class="entry-title">DeSpawn &mdash; Mirror</span>
   <span class="entry-file">Verse/Thing.cs:945-1036</span>
-  <p class="entry-desc">Mirror deregistration of SpawnSetup: All subsystems are notified in reverse order. mapIndexOrState is reset.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#5</span>
-  <span class="entry-title">Destroy &amp; Kill</span>
-  <span class="entry-file">Verse/Thing.cs</span>
-  <p class="entry-desc"><code>Destroy(DestroyMode)</code> calls DeSpawn and sets state to Destroyed (-2). <code>Kill(DamageInfo)</code> is the gameplay-side variant that triggers damage events and may spawn corpse/wreckage.</p>
-  <p class="entry-desc">DestroyModes: Vanish, WillReplace, Deconstruct, FailConstruction, Refund, KillFinalize, KillFinalizeLeavingsOnly.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#6</span>
-  <span class="entry-title">ExposeData (Serialization)</span>
-  <span class="entry-file">Verse/Thing.cs</span>
-  <p class="entry-desc">Save/load system: Saves def, ID, position, rotation, faction, hitPoints, stuff. <code>PostExposeData()</code> hook for subclasses. Comps serialize themselves via <code>CompExposeData()</code>.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#7</span>
-  <span class="entry-title">PostMake &amp; PostPostMake</span>
-  <span class="entry-file">Verse/Thing.cs</span>
-  <p class="entry-desc">Factory hooks on creation: <code>PostMake()</code> is called after ThingMaker.MakeThing, <code>PostPostMake()</code> after that. Comps receive <code>CompPostMake()</code>. Ideal for initialization that shouldn't happen in the constructor.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#8</span>
-  <span class="entry-title">ThingWithComps Component System</span>
-  <span class="entry-file">Verse/ThingWithComps.cs:1-221</span>
-  <p class="entry-desc">THE modding mechanism: ThingComps are defined via XML and instantiated at runtime. <code>GetComp&lt;T&gt;</code> is optimized: direct is-checks for &lt;3 comps, dictionary for &ge;3 comps.</p>
-  <p class="entry-modding">Custom ThingComps for new functionality via XML + C#.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#9</span>
-  <span class="entry-title">ThingWithComps Lifecycle Delegation</span>
-  <span class="entry-file">Verse/ThingWithComps.cs</span>
-  <p class="entry-desc">All lifecycle methods iterate over comps: <code>PostSpawnSetup</code>, <code>PostDeSpawn</code>, <code>PostDestroy</code>, <code>CompTick</code>, <code>CompTickRare</code>, <code>CompTickLong</code>. Comps automatically receive all events.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#10</span>
-  <span class="entry-title">Building</span>
-  <span class="entry-file">Verse/Building.cs:1-684</span>
-  <p class="entry-desc">Inherits from ThingWithComps. <code>MinTickIntervalRate = 6</code> (building ticks at most every 6 ticks). Manages edificeGrid registration, paint system for colors, and roof collapse notification on destruction.</p>
-  <p class="entry-connections">Connection: Building spawn/despawn &rarr; RegionDirtyer &rarr; room rebuild (&rarr; RI-11)</p>
+  <p class="entry-desc">Deregistration in reverse order. Removing a wall &rarr; RegionDirtyer &rarr; room rebuild &rarr; temperature equalization changes (e.g. two rooms merge into one).</p>
 </div>
 
 <div class="footer">

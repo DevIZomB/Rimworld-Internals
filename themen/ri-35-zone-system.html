@@ -13,82 +13,41 @@
 <div class="header">
   <div class="meta">
     <span class="topic-id">RI-35</span>
-    <span class="namespace">Namespace: Verse / RimWorld</span>
+    <span class="namespace">Namespace: RimWorld</span>
   </div>
   <h1>Zone_Growing &amp; Pflanzenwachstum</h1>
-  <p class="subtitle">Anbau-Zonen, Wachstumsrate und Temperatur-Abh&auml;ngigkeit</p>
+  <p class="subtitle">Temperatur-Abh&auml;ngigkeit: Temperatur ist Wachstumsfaktor und bestimmt Wachstums-Saison</p>
 </div>
 
 <div class="box box-info">
-  <div class="label">Temperatur-Verbindung</div>
-  <code>GenTemperature.TwelfthsInAverageTemperatureRange</code> bestimmt die Wachstums-Saison.
-  Temperatur ist einer von 5 Faktoren der Wachstumsrate.
+  <div class="label">Temperatur &rarr; Growing Verbindung</div>
+  Temperatur beeinflusst Pflanzen auf zwei Wegen:
+  <strong>1.</strong> Als Faktor in der Wachstumsrate (0% bei 0&deg;C und 42&deg;C).
+  <strong>2.</strong> &Uuml;ber <code>GenTemperature.TwelfthsInAverageTemperatureRange</code> f&uuml;r die Wachstums-Saison-Anzeige.
 </div>
 
 <div class="entry">
   <span class="entry-id">#1</span>
-  <span class="entry-title">Zone_Growing</span>
-  <span class="entry-file">RimWorld/Zone_Growing.cs</span>
-  <p class="entry-desc">Implementiert <code>IPlantToGrowSettable</code>. Verwaltet: <code>plantDefToGrow</code> (ThingDef),
-  <code>allowSow</code>, <code>allowCut</code> Flags. Standard-Pflanze: Kartoffel (oder Toxipotato auf Pollution-Welten).</p>
-  <p class="entry-desc"><code>GrowingQuadrumsDescription</code> nutzt <code>GenTemperature.TwelfthsInAverageTemperatureRange</code>
-  um dem Spieler die verf&uuml;gbaren Wachstums-Monate anzuzeigen.</p>
-  <p class="entry-modding"><code>SetPlantDefToGrow</code> ist public und Harmony-patchbar.</p>
+  <span class="entry-title">Temperatur als Wachstumsfaktor</span>
+  <span class="entry-file">RimWorld/Plant.cs</span>
+  <p class="entry-desc">Wachstumsrate = 5-Faktor-Multiplikation. Temperatur ist einer davon:</p>
+  <p class="entry-desc"><code>GrowthRate = Fertility &times; <strong>Temperature</strong> &times; Light &times; NoxiousHaze &times; Drought</code></p>
+  <table>
+    <tr><th>Temperatur</th><th>Faktor</th></tr>
+    <tr><td>&le; 0&deg;C</td><td>0% (kein Wachstum)</td></tr>
+    <tr><td>10&deg;C</td><td>Rampe aufw&auml;rts</td></tr>
+    <tr><td>20-30&deg;C</td><td>~100% (optimal)</td></tr>
+    <tr><td>&ge; 42&deg;C</td><td>0% (zu hei&szlig;)</td></tr>
+  </table>
+  <p class="entry-desc">Formel: <code>GrowthPerTick = 1 / (60000 &times; growDays) &times; GrowthRate</code></p>
 </div>
 
 <div class="entry">
   <span class="entry-id">#2</span>
-  <span class="entry-title">Wachstumsrate (5-Faktor-Multiplikation)</span>
-  <span class="entry-file">RimWorld/Plant.cs</span>
-  <p class="entry-desc">
-    <code>GrowthRate = Fertility &times; Temperature &times; Light &times; NoxiousHaze &times; Drought</code>
-  </p>
-  <table>
-    <tr><th>Faktor</th><th>Quelle</th><th>Hinweis</th></tr>
-    <tr><td>Fertility</td><td>Terrain + Gebäude</td><td>0.0 - 1.4+</td></tr>
-    <tr><td>Temperature</td><td>Room/Outdoor Temp</td><td>Kurve: 0&deg;C=0%, 10&deg;C=Rampe, 42&deg;C=0%</td></tr>
-    <tr><td>Light</td><td>GlowGrid</td><td>0.0 (dunkel) - 1.0 (voll)</td></tr>
-    <tr><td>NoxiousHaze</td><td>GameCondition</td><td>Reduziert bei Smog</td></tr>
-    <tr><td>Drought</td><td>GameCondition</td><td>Reduziert bei D&uuml;rre</td></tr>
-  </table>
-  <p class="entry-desc"><strong>Formel:</strong> <code>GrowthPerTick = 1 / (60000 &times; growDays) &times; GrowthRate</code></p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#3</span>
-  <span class="entry-title">Lebensphasen</span>
-  <p class="entry-desc">
-    <strong>Sowing</strong> (&lt;0.01%) &rarr; <strong>Growing</strong> (0.01%-99.9%) &rarr; <strong>Mature</strong> (&gt;99.9%)
-  </p>
-  <p class="entry-desc">Update alle <strong>2000 Ticks</strong> (TickLong). Wachstum wird pro TickLong addiert.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#4</span>
-  <span class="entry-title">Sterbe-Mechaniken (5 Todesarten)</span>
-  <span class="entry-file">RimWorld/Plant.cs</span>
-  <p class="entry-desc">
-    &bull; <strong>Lifespan</strong> &mdash; Maximale Lebensdauer erreicht<br>
-    &bull; <strong>Licht-Entzug</strong> &mdash; Zu wenig Licht &uuml;ber Zeit<br>
-    &bull; <strong>Exposure</strong> &mdash; Temperatur au&szlig;erhalb Wachstumsbereich<br>
-    &bull; <strong>Vakuum</strong> &mdash; Kein Dach + extremes Klima<br>
-    &bull; <strong>Pollution</strong> &mdash; Verschmutzte Zellen
-  </p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#5</span>
-  <span class="entry-title">Ernte &amp; Blight</span>
-  <span class="entry-file">RimWorld/Plant.cs</span>
-  <p class="entry-desc"><code>YieldNow()</code> nutzt <code>GenMath.RoundRandom</code> f&uuml;r Ertrags-Berechnung.
-  <span class="tag tag-mp">MP-Kritisch</span> &mdash; verbraucht Rand!</p>
-  <p class="entry-desc"><strong>Blight:</strong> FloodFill bis zu 100 angrenzende Zellen. Breitet sich &uuml;ber Anbau-Zonen aus.</p>
-</div>
-
-<div class="box box-danger">
-  <div class="label">MP-Kritisch</div>
-  <code>TickLong()</code> erzeugt Blatt-Motes die den <strong>globalen Rand-State verbrauchen</strong> (NICHT in PushState)
-  &mdash; betrifft alle Pflanzen mit <code>dropLeaves=true</code>. Desync-Risiko!
+  <span class="entry-title">Wachstums-Saison (TwelfthsInAverageTemperatureRange)</span>
+  <span class="entry-file">Verse/GenTemperature.cs</span>
+  <p class="entry-desc"><code>Zone_Growing.GrowingQuadrumsDescription</code> nutzt <code>GenTemperature.TwelfthsInAverageTemperatureRange</code> um dem Spieler die verf&uuml;gbaren Wachstums-Monate anzuzeigen.</p>
+  <p class="entry-desc">Die Funktion berechnet f&uuml;r jedes Twelfth (Monat) ob die Durchschnittstemperatur im Wachstumsbereich der Pflanze liegt. Das basiert auf denselben Outdoor-Temperatur-Quellen (Breitengrad + Jahreszeit + Sonnenzyklus) die auch das Equalization-System nutzt.</p>
 </div>
 
 <div class="footer">

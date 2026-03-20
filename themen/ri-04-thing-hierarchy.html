@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Thing-Hierarchie &mdash; RW Internals</title>
+<title>Thing-Hierarchie — RW Internals</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,82 +16,34 @@
     <span class="namespace">Namespace: Verse</span>
   </div>
   <h1>Thing-Hierarchie</h1>
-  <p class="subtitle">Basis-Klasse aller Spielobjekte &mdash; 10 Kern-Mechanismen</p>
+  <p class="subtitle">Temperatur-Abh&auml;ngigkeit: Spawn/DeSpawn l&ouml;st Room-Rebuild aus</p>
+</div>
+
+<div class="box box-danger">
+  <div class="label">Temperatur &rarr; Thing Verbindung</div>
+  Wenn ein Geb&auml;ude (Wand, T&uuml;r, Vent) gespawnt oder despawnt wird, l&ouml;st das einen
+  <strong>Room-Rebuild</strong> aus &rarr; <code>RegenerateEqualizationData</code> &rarr; <code>equalizeCells.Shuffle()</code> &rarr; Rand-Calls.
 </div>
 
 <div class="entry">
   <span class="entry-id">#1</span>
-  <span class="entry-title">Thing Kern-Felder &amp; State-Machine</span>
-  <span class="entry-file">Verse/Thing.cs:17-69</span>
-  <p class="entry-desc">Kern-Felder jedes Things: <code>thingIDNumber</code>, <code>def</code>, <code>mapIndexOrState</code> (State-Machine: -3=Discarded, -2=Destroyed, -1=Unspawned, &ge;0=Map-Index).</p>
+  <span class="entry-title">SpawnSetup &rarr; RegionDirtyer</span>
+  <span class="entry-file">Verse/Thing.cs:803-928</span>
+  <p class="entry-desc">Beim Spawnen eines Things werden 15+ Subsysteme registriert. F&uuml;r Temperatur relevant:</p>
+  <table>
+    <tr><th>Subsystem</th><th>Temperatur-Bezug</th></tr>
+    <tr><td><code>RegionDirtyer</code></td><td>Markiert Regions als dirty &rarr; Room-Rebuild &rarr; neue equalizeCells</td></tr>
+    <tr><td><code>edificeGrid</code></td><td>W&auml;nde registrieren sich &rarr; beeinflusst Wall-Equalization</td></tr>
+    <tr><td><code>mapTemperature</code></td><td>Direkte Benachrichtigung des Temperatur-Systems</td></tr>
+  </table>
+  <p class="entry-desc"><span class="tag tag-mp">MP-Kritisch</span> &mdash; Die Reihenfolge der Registrierung ist fest. Wenn ein Mod die Spawn-Reihenfolge &auml;ndert, kann das Room-Rebuilds zu anderen Zeitpunkten ausl&ouml;sen.</p>
 </div>
 
 <div class="entry">
   <span class="entry-id">#2</span>
-  <span class="entry-title">DoTick Dispatch</span>
-  <span class="entry-file">Verse/Thing.cs</span>
-  <p class="entry-desc">TickList ruft <code>thing.DoTick()</code> auf, das basierend auf <code>def.tickerType</code> zu <code>Tick()</code>, <code>TickRare()</code> oder <code>TickLong()</code> dispatcht. Normal = jeder Tick, Rare = alle 250, Long = alle 2000.</p>
-  <p class="entry-connections">Verbindung: &rarr; RI-02.03 (TickList Bucket-System)</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#3</span>
-  <span class="entry-title">SpawnSetup</span>
-  <span class="entry-file">Verse/Thing.cs:803-928</span>
-  <p class="entry-desc">15+ Subsystem-Registrierungen beim Spawnen: ThingGrid, RegionDirtyer, ListerThings, CoverGrid, edificeGrid, GlowGrid, MapMeshDirty, gasGrid, mapTemperature, TickManager, etc. Reihenfolge ist fest.</p>
-  <p class="entry-desc"><span class="tag tag-mp">MP-Kritisch</span> &mdash; SpawnSetup l&ouml;st RegionDirtyer aus &rarr; Room-Rebuild &rarr; equalizeCells.Shuffle() &rarr; Rand-Call.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#4</span>
-  <span class="entry-title">DeSpawn</span>
+  <span class="entry-title">DeSpawn &mdash; Spiegelbildlich</span>
   <span class="entry-file">Verse/Thing.cs:945-1036</span>
-  <p class="entry-desc">Spiegelbildliche Deregistrierung zu SpawnSetup: Alle Subsysteme werden in umgekehrter Reihenfolge benachrichtigt. mapIndexOrState wird zur&uuml;ckgesetzt.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#5</span>
-  <span class="entry-title">Destroy &amp; Kill</span>
-  <span class="entry-file">Verse/Thing.cs</span>
-  <p class="entry-desc"><code>Destroy(DestroyMode)</code> ruft DeSpawn auf und setzt State auf Destroyed (-2). <code>Kill(DamageInfo)</code> ist die gameplay-seitige Variante die Damage-Events ausl&ouml;st und ggf. Corpse/Wreckage spawnt.</p>
-  <p class="entry-desc">DestroyModes: Vanish, WillReplace, Deconstruct, FailConstruction, Refund, KillFinalize, KillFinalizeLeavingsOnly.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#6</span>
-  <span class="entry-title">ExposeData (Serialisierung)</span>
-  <span class="entry-file">Verse/Thing.cs</span>
-  <p class="entry-desc">Save/Load-System: Speichert def, ID, position, rotation, faction, hitPoints, stuff. <code>PostExposeData()</code> Hook f&uuml;r Subklassen. Comps serialisieren sich selbst &uuml;ber <code>CompExposeData()</code>.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#7</span>
-  <span class="entry-title">PostMake &amp; PostPostMake</span>
-  <span class="entry-file">Verse/Thing.cs</span>
-  <p class="entry-desc">Factory-Hooks bei der Erstellung: <code>PostMake()</code> wird nach ThingMaker.MakeThing aufgerufen, <code>PostPostMake()</code> danach. Comps erhalten <code>CompPostMake()</code>. Ideal f&uuml;r Initialisierung die nicht im Konstruktor passieren soll.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#8</span>
-  <span class="entry-title">ThingWithComps Component-System</span>
-  <span class="entry-file">Verse/ThingWithComps.cs:1-221</span>
-  <p class="entry-desc">DER Modding-Mechanismus: ThingComps werden per XML definiert und zur Laufzeit instanziiert. <code>GetComp&lt;T&gt;</code> ist optimiert: direkte is-Checks bei &lt;3 Comps, Dictionary bei &ge;3 Comps.</p>
-  <p class="entry-modding">Eigene ThingComps f&uuml;r neue Funktionalit&auml;t per XML + C#.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#9</span>
-  <span class="entry-title">ThingWithComps Lifecycle-Delegation</span>
-  <span class="entry-file">Verse/ThingWithComps.cs</span>
-  <p class="entry-desc">Alle Lifecycle-Methoden iterieren &uuml;ber Comps: <code>PostSpawnSetup</code>, <code>PostDeSpawn</code>, <code>PostDestroy</code>, <code>CompTick</code>, <code>CompTickRare</code>, <code>CompTickLong</code>. Comps erhalten automatisch alle Events.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#10</span>
-  <span class="entry-title">Building</span>
-  <span class="entry-file">Verse/Building.cs:1-684</span>
-  <p class="entry-desc">Erbt von ThingWithComps. <code>MinTickIntervalRate = 6</code> (Building tickt maximal alle 6 Ticks). Verwaltet edificeGrid-Registrierung, Paint-System f&uuml;r Farben, und Dach-Kollaps-Benachrichtigung bei Zerst&ouml;rung.</p>
-  <p class="entry-connections">Verbindung: Geb&auml;ude-Spawn/DeSpawn &rarr; RegionDirtyer &rarr; Room-Rebuild (&rarr; RI-11)</p>
+  <p class="entry-desc">Deregistrierung in umgekehrter Reihenfolge. Wand entfernen &rarr; RegionDirtyer &rarr; Room-Rebuild &rarr; Temperatur-Equalization &auml;ndert sich (z.B. zwei R&auml;ume werden zu einem).</p>
 </div>
 
 <div class="footer">

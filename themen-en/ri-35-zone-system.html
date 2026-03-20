@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Zone_Growing &amp; Plant Growth &mdash; RW Internals</title>
+<title>Zone_Growing &amp; Plant Growth — RW Internals</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,82 +13,41 @@
 <div class="header">
   <div class="meta">
     <span class="topic-id">RI-35</span>
-    <span class="namespace">Namespace: Verse / RimWorld</span>
+    <span class="namespace">Namespace: RimWorld</span>
   </div>
   <h1>Zone_Growing &amp; Plant Growth</h1>
-  <p class="subtitle">Growing zones, growth rate and temperature dependency</p>
+  <p class="subtitle">Temperature dependency: Temperature is a growth factor and determines growing season</p>
 </div>
 
 <div class="box box-info">
-  <div class="label">Temperature Connection</div>
-  <code>GenTemperature.TwelfthsInAverageTemperatureRange</code> determines the growing season.
-  Temperature is one of 5 growth rate factors.
+  <div class="label">Temperature &rarr; Growing Connection</div>
+  Temperature affects plants in two ways:
+  <strong>1.</strong> As a factor in the growth rate (0% at 0&deg;C and 42&deg;C).
+  <strong>2.</strong> Via <code>GenTemperature.TwelfthsInAverageTemperatureRange</code> for the growing season display.
 </div>
 
 <div class="entry">
   <span class="entry-id">#1</span>
-  <span class="entry-title">Zone_Growing</span>
-  <span class="entry-file">RimWorld/Zone_Growing.cs</span>
-  <p class="entry-desc">Implements <code>IPlantToGrowSettable</code>. Manages: <code>plantDefToGrow</code> (ThingDef),
-  <code>allowSow</code>, <code>allowCut</code> flags. Default plant: Potato (or Toxipotato on pollution worlds).</p>
-  <p class="entry-desc"><code>GrowingQuadrumsDescription</code> uses <code>GenTemperature.TwelfthsInAverageTemperatureRange</code>
-  to display the available growing months to the player.</p>
-  <p class="entry-modding"><code>SetPlantDefToGrow</code> is public and Harmony-patchable.</p>
+  <span class="entry-title">Temperature as Growth Factor</span>
+  <span class="entry-file">RimWorld/Plant.cs</span>
+  <p class="entry-desc">Growth rate = 5-factor multiplication. Temperature is one of them:</p>
+  <p class="entry-desc"><code>GrowthRate = Fertility &times; <strong>Temperature</strong> &times; Light &times; NoxiousHaze &times; Drought</code></p>
+  <table>
+    <tr><th>Temperature</th><th>Factor</th></tr>
+    <tr><td>&le; 0&deg;C</td><td>0% (no growth)</td></tr>
+    <tr><td>10&deg;C</td><td>Ramp up</td></tr>
+    <tr><td>20-30&deg;C</td><td>~100% (optimal)</td></tr>
+    <tr><td>&ge; 42&deg;C</td><td>0% (too hot)</td></tr>
+  </table>
+  <p class="entry-desc">Formula: <code>GrowthPerTick = 1 / (60000 &times; growDays) &times; GrowthRate</code></p>
 </div>
 
 <div class="entry">
   <span class="entry-id">#2</span>
-  <span class="entry-title">Growth Rate (5-Factor Multiplication)</span>
-  <span class="entry-file">RimWorld/Plant.cs</span>
-  <p class="entry-desc">
-    <code>GrowthRate = Fertility &times; Temperature &times; Light &times; NoxiousHaze &times; Drought</code>
-  </p>
-  <table>
-    <tr><th>Factor</th><th>Source</th><th>Note</th></tr>
-    <tr><td>Fertility</td><td>Terrain + Building</td><td>0.0 - 1.4+</td></tr>
-    <tr><td>Temperature</td><td>Room/Outdoor Temp</td><td>Curve: 0&deg;C=0%, 10&deg;C=ramp, 42&deg;C=0%</td></tr>
-    <tr><td>Light</td><td>GlowGrid</td><td>0.0 (dark) - 1.0 (full)</td></tr>
-    <tr><td>NoxiousHaze</td><td>GameCondition</td><td>Reduced during smog</td></tr>
-    <tr><td>Drought</td><td>GameCondition</td><td>Reduced during drought</td></tr>
-  </table>
-  <p class="entry-desc"><strong>Formula:</strong> <code>GrowthPerTick = 1 / (60000 &times; growDays) &times; GrowthRate</code></p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#3</span>
-  <span class="entry-title">Life Stages</span>
-  <p class="entry-desc">
-    <strong>Sowing</strong> (&lt;0.01%) &rarr; <strong>Growing</strong> (0.01%-99.9%) &rarr; <strong>Mature</strong> (&gt;99.9%)
-  </p>
-  <p class="entry-desc">Updated every <strong>2000 ticks</strong> (TickLong). Growth is added per TickLong.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#4</span>
-  <span class="entry-title">Death Mechanics (5 Types)</span>
-  <span class="entry-file">RimWorld/Plant.cs</span>
-  <p class="entry-desc">
-    &bull; <strong>Lifespan</strong> &mdash; Maximum lifespan reached<br>
-    &bull; <strong>Light deprivation</strong> &mdash; Too little light over time<br>
-    &bull; <strong>Exposure</strong> &mdash; Temperature outside growth range<br>
-    &bull; <strong>Vacuum</strong> &mdash; No roof + extreme climate<br>
-    &bull; <strong>Pollution</strong> &mdash; Polluted cells
-  </p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#5</span>
-  <span class="entry-title">Harvest &amp; Blight</span>
-  <span class="entry-file">RimWorld/Plant.cs</span>
-  <p class="entry-desc"><code>YieldNow()</code> uses <code>GenMath.RoundRandom</code> for yield calculation.
-  <span class="tag tag-mp">MP-Critical</span> &mdash; consumes Rand!</p>
-  <p class="entry-desc"><strong>Blight:</strong> FloodFill up to 100 adjacent cells. Spreads across growing zones.</p>
-</div>
-
-<div class="box box-danger">
-  <div class="label">MP-Critical</div>
-  <code>TickLong()</code> generates leaf motes that <strong>consume global Rand state</strong> (NOT in PushState)
-  &mdash; affects all plants with <code>dropLeaves=true</code>. Desync risk!
+  <span class="entry-title">Growing Season (TwelfthsInAverageTemperatureRange)</span>
+  <span class="entry-file">Verse/GenTemperature.cs</span>
+  <p class="entry-desc"><code>Zone_Growing.GrowingQuadrumsDescription</code> uses <code>GenTemperature.TwelfthsInAverageTemperatureRange</code> to display the available growing months to the player.</p>
+  <p class="entry-desc">The function calculates for each twelfth (month) whether the average temperature falls within the plant's growth range. This is based on the same outdoor temperature sources (latitude + season + sun cycle) that the equalization system uses.</p>
 </div>
 
 <div class="footer">

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Region System &mdash; RW Internals</title>
+<title>Region System — RW Internals</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,62 +16,53 @@
     <span class="namespace">Namespace: Verse</span>
   </div>
   <h1>Region System</h1>
-  <p class="subtitle">12&times;12 pathfinding building blocks &amp; danger detection</p>
+  <p class="subtitle">Temperature dependency: Danger detection and room hierarchy</p>
+</div>
+
+<div class="box box-info">
+  <div class="label">Temperature &rarr; Region Connection</div>
+  Regions are the building blocks from which districts and rooms are constructed.
+  The <strong>room hierarchy</strong> (Region &rarr; District &rarr; Room) determines how temperature is calculated.
+  <code>DangerFor</code> uses room temperature for pawn AI.
 </div>
 
 <div class="entry">
   <span class="entry-id">#1</span>
-  <span class="entry-title">Region</span>
-  <span class="entry-file">Verse/Region.cs:1-610</span>
-  <p class="entry-desc">12&times;12 building block of the pathfinding system. Contains <code>closedIndex[8]</code> for parallel BFS traversals, <code>ListerThings</code> for fast thing queries, and danger cache for pawn AI.</p>
+  <span class="entry-title">Region &rarr; District &rarr; Room</span>
+  <p class="entry-desc">
+    <strong>Region</strong> = 12&times;12 cells, building block.<br>
+    <strong>District</strong> = connected regions of the same type (Normal/Fence/ImpassableFreeAir).<br>
+    <strong>Room</strong> = districts connected via portal regions (doors).
+  </p>
+  <p class="entry-desc"><strong>Temperature link:</strong> Temperature is calculated per <strong>Room</strong>, not per region or district. A room can have multiple districts but has a single temperature.</p>
+  <p class="entry-desc"><span class="file-ref">Verse/Room.cs:1-937</span> <span class="file-ref">Verse/RegionAndRoomUpdater.cs:1-409</span></p>
 </div>
 
 <div class="entry">
   <span class="entry-id">#2</span>
-  <span class="entry-title">RegionGrid</span>
-  <span class="entry-file">Verse/RegionGrid.cs:1-253</span>
-  <p class="entry-desc"><code>Region[]</code> array across the entire map. Auto-rebuild on terrain/building changes. <code>UpdateClean</code> processes max 16 dirty regions per frame.</p>
+  <span class="entry-title">DangerFor &mdash; Temperature Dangers</span>
+  <span class="entry-file">Verse/Region.cs</span>
+  <p class="entry-desc"><code>Region.DangerFor(Pawn)</code> checks room temperature against the pawn's <code>SafeTemperatureRange</code>. Result is cached.</p>
+  <table>
+    <tr><th>Danger Level</th><th>Condition</th><th>Pawn Behavior</th></tr>
+    <tr><td>None</td><td>Temperature within SafeRange</td><td>Normal</td></tr>
+    <tr><td>Some</td><td>Hostile presence</td><td>Cautious</td></tr>
+    <tr><td>Deadly</td><td>Temperature outside SafeRange / vacuum</td><td><strong>Avoids the room</strong></td></tr>
+  </table>
+  <p class="entry-desc">This means: Pawns won't voluntarily enter freezers or burning rooms unless they are drafted.</p>
 </div>
 
 <div class="entry">
   <span class="entry-id">#3</span>
-  <span class="entry-title">RegionTraverser (BFS)</span>
-  <span class="entry-file">Verse/RegionTraverser.cs:1-242</span>
-  <p class="entry-desc">BFS traversal with worker pool (8 workers). Uses closedIndex trick: instead of a visited HashSet, a global counter per worker is incremented &mdash; O(1) instead of O(n) reset.</p>
-  <p class="entry-modding">Use <code>BreadthFirstTraverse</code> for custom reachability queries.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#4</span>
-  <span class="entry-title">District</span>
-  <span class="entry-file">Verse/District.cs:1-338</span>
-  <p class="entry-desc">Groups multiple regions into a logical area. Room membership, <code>OpenRoofCountStopAt</code> with lazy evaluation for performance.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#5</span>
-  <span class="entry-title">RegionType (Flags Enum)</span>
-  <span class="entry-file">Verse/RegionType.cs:1-16</span>
-  <p class="entry-desc">Four types: <strong>Normal</strong> (walkable), <strong>Portal</strong> (doors), <strong>Fence</strong> (fences, blocks animals), <strong>Impassable</strong> (walls/rocks).</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#6</span>
-  <span class="entry-title">DangerFor (Danger Detection)</span>
-  <span class="entry-file">Verse/Region.cs</span>
-  <p class="entry-desc"><code>Region.DangerFor(Pawn)</code> checks room temperature against the pawn's <code>SafeTemperatureRange</code>. Result is cached. Pawns automatically avoid regions outside their temperature range.</p>
-  <p class="entry-desc">Danger levels: None, Some (hostile presence), Deadly (temperature/vacuum).</p>
-  <p class="entry-connections">Connection: &rarr; Temperature System (v2 main page), &rarr; RI-06 (Pawn ComfortableTemperatureRange)</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#7</span>
-  <span class="entry-title">Region &rarr; District &rarr; Room Hierarchy</span>
+  <span class="entry-title">Room Rebuild &rarr; RegenerateEqualizationData</span>
+  <span class="entry-file">Verse/RegionAndRoomUpdater.cs:1-409</span>
+  <p class="entry-desc">When a wall/door is built or removed:</p>
   <p class="entry-desc">
-    <strong>Region</strong> (12&times;12 cells) &rarr; <strong>District</strong> (connected regions of same type) &rarr; <strong>Room</strong> (districts connected via portal regions/doors).
-    A room can have multiple districts. <code>Room.UsesOutdoorTemperature</code> determines whether the room counts as outdoor (&ge;25% open OR TouchesMapEdge).
+    Cell dirty &rarr; RegenerateNewRegions &rarr; FloodAndSetNewRegionIndex &rarr;
+    CreateOrAttachToExistingDistricts &rarr; CombineDistrictsIntoRooms (DFS) &rarr;
+    <strong>RegenerateEqualizationData</strong> &rarr; <strong>Shuffle()</strong>
   </p>
-  <p class="entry-connections">Connection: &rarr; Temperature System (Room Hierarchy section)</p>
+  <p class="entry-desc"><span class="tag tag-mp">MP-Critical</span> &mdash; The entire rebuild pipeline must run identically and at the same time on all clients.</p>
 </div>
 
 <div class="footer">

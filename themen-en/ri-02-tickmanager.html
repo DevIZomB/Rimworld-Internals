@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TickManager &amp; Game Loop &mdash; RW Internals</title>
+<title>TickManager &amp; Game Loop — RW Internals</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,117 +16,36 @@
     <span class="namespace">Namespace: Verse</span>
   </div>
   <h1>TickManager &amp; Game Loop</h1>
-  <p class="subtitle">Heartbeat of RimWorld &mdash; 9 core mechanisms</p>
+  <p class="subtitle">Temperature dependency: MapTemperatureTick runs in step 16 every 120 ticks</p>
+</div>
+
+<div class="box box-info">
+  <div class="label">Temperature &rarr; Tick Connection</div>
+  <code>MapTemperatureTick()</code> is called in <code>MapPostTick()</code> (step 16 of DoSingleTick).
+  Internally it only runs every <strong>120 ticks</strong> (offset 7) &mdash; not every tick.
 </div>
 
 <div class="entry">
   <span class="entry-id">#1</span>
-  <span class="entry-title">TickManagerUpdate (Frame Loop)</span>
-  <span class="entry-file">Verse/TickManager.cs:318-355</span>
-  <p class="entry-desc">Called every Unity frame. Calculates from <code>Time.deltaTime</code> and <code>TickRateMultiplier</code> how many ticks to execute this frame. Has frametime jitter correction (line 326-333): when deltaTime &asymp; curTimePerTick (&plusmn;10%), exact value is used instead of deltaTime. Maximum wall-clock per frame: ~45ms (= 22 FPS minimum).</p>
+  <span class="entry-title">DoSingleTick &mdash; Where Temperature Runs</span>
+  <span class="entry-file">Verse/TickManager.cs:357-499</span>
+  <p class="entry-desc"><span class="tag tag-mp">MP-Critical</span> &mdash; 22 steps in fixed order. Temperature-relevant:</p>
+  <table>
+    <tr><th>#</th><th>Step</th><th>Temperature Link</th></tr>
+    <tr><td>4</td><td><code>tickListNormal.Tick()</code></td><td>Heater/Cooler/Vent tick here (Building_Heater, Building_Cooler)</td></tr>
+    <tr><td>5</td><td><code>tickListRare.Tick()</code></td><td>Doors: EqualizeTemperaturesThroughBuilding (34/375 ticks)</td></tr>
+    <tr><td>14</td><td><code>SteadyEnvironmentEffects</code></td><td>Fire spread &rarr; PushHeat</td></tr>
+    <tr><td>16</td><td><code>MapPostTick()</code></td><td><strong>MapTemperatureTick &rarr; RoomTempTracker.EqualizeTemperature()</strong></td></tr>
+    <tr><td>19</td><td><code>RegionDirtyer</code></td><td>Room rebuild after building changes &rarr; RegenerateEqualizationData</td></tr>
+  </table>
 </div>
 
 <div class="entry">
   <span class="entry-id">#2</span>
-  <span class="entry-title">DoSingleTick (Tick Order)</span>
-  <span class="entry-file">Verse/TickManager.cs:357-499</span>
-  <p class="entry-desc"><span class="tag tag-mp">MP-Critical</span> &mdash; THE core tick. Exact order (each step in try/catch):</p>
-  <table>
-    <tr><th>#</th><th>Step</th><th>Note</th></tr>
-    <tr><td>1</td><td><code>maps[i].MapPreTick()</code></td><td>Prepare all maps</td></tr>
-    <tr><td>2</td><td><code>ticksGameInt++</code></td><td>Increment tick counter</td></tr>
-    <tr><td>3</td><td><code>Shader.SetGlobalFloat</code></td><td>Set shader time</td></tr>
-    <tr><td>4</td><td><code>tickListNormal.Tick()</code></td><td>All normal tickers (every tick)</td></tr>
-    <tr><td>5</td><td><code>tickListRare.Tick()</code></td><td>Rare tickers (every 250 ticks)</td></tr>
-    <tr><td>6</td><td><code>tickListLong.Tick()</code></td><td>Long tickers (every 2000 ticks)</td></tr>
-    <tr><td>7</td><td><code>DateNotifier</code></td><td></td></tr>
-    <tr><td>8</td><td><code>Scenario.TickScenario()</code></td><td></td></tr>
-    <tr><td>9</td><td><code>World.WorldTick()</code></td><td></td></tr>
-    <tr><td>10</td><td><code>StoryWatcher</code></td><td></td></tr>
-    <tr><td>11</td><td><code>GameEnder</code></td><td></td></tr>
-    <tr><td>12</td><td><code>Storyteller</code></td><td></td></tr>
-    <tr><td>13</td><td><code>TaleManager</code></td><td></td></tr>
-    <tr><td>14</td><td><code>QuestManager</code></td><td></td></tr>
-    <tr><td>15</td><td><code>World.WorldPostTick()</code></td><td></td></tr>
-    <tr><td>16</td><td><code>maps[j].MapPostTick()</code></td><td>Contains MapTemperature (120 ticks)</td></tr>
-    <tr><td>17</td><td><code>History</code></td><td></td></tr>
-    <tr><td>18</td><td><code>GameComponentTick()</code></td><td><strong>Mod hook!</strong></td></tr>
-    <tr><td>19</td><td><code>LetterStack</code></td><td></td></tr>
-    <tr><td>20</td><td><code>Autosaver</code></td><td></td></tr>
-    <tr><td>21</td><td><code>FilthMonitor</code></td><td></td></tr>
-    <tr><td>22</td><td><code>TransportShipManager</code></td><td></td></tr>
-  </table>
-  <p class="entry-modding">GameComponentTick (step 18) is the official hook for mods. Order is FIXED.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#3</span>
-  <span class="entry-title">TickList Bucket System</span>
-  <span class="entry-file">Verse/TickList.cs:1-127</span>
-  <p class="entry-desc">Distributes things into buckets based on <code>GetHashCode() % TickInterval</code>. Per Tick() only the bucket <code>TicksGame % TickInterval</code> is processed. Deferred register/deregister: new things enter the list only on the next Tick() call (avoids ConcurrentModification).</p>
-  <table>
-    <tr><th>TickerType</th><th>Interval</th><th>Game Time</th></tr>
-    <tr><td>Normal</td><td>1 (every tick)</td><td>60/s at speed 1</td></tr>
-    <tr><td>Rare</td><td>250</td><td>~4.2 seconds</td></tr>
-    <tr><td>Long</td><td>2000</td><td>~33 seconds</td></tr>
-  </table>
-  <p class="entry-modding">Things tick based on <code>def.tickerType</code>. IThingHolder is always ticked as Normal.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#4</span>
-  <span class="entry-title">TickRateMultiplier (Speed Logic)</span>
-  <span class="entry-file">Verse/TickManager.cs:74-114</span>
-  <p class="entry-desc">Superfast is dynamic:
-    <strong>18&times;</strong> without maps,
-    <strong>12&times;</strong> when NothingHappening (everyone asleep, no danger),
-    <strong>6&times;</strong> otherwise.
-    Ultrafast: 150&times; without maps, 15&times; with maps.</p>
-  <p class="entry-modding">Harmony postfix on TickRateMultiplier to add custom speed logic.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#5</span>
-  <span class="entry-title">TimeSlower (Event Brake)</span>
-  <span class="entry-file">Verse/TimeSlower.cs:1-31</span>
-  <p class="entry-desc">Forces normal speed after important events. <code>SignalForceNormalSpeed()</code> = <strong>800 ticks</strong> (~13s), <code>SignalForceNormalSpeedShort()</code> = <strong>240 ticks</strong> (~4s). Called on raids, hostile map generations, etc.</p>
-  <p class="entry-modding">Call <code>slower.SignalForceNormalSpeed()</code> when your mod triggers an important event.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#6</span>
-  <span class="entry-title">NothingHappeningInGame</span>
-  <span class="entry-file">Verse/TickManager.cs:245-282</span>
-  <p class="entry-desc">Checks if "nothing is happening" on all maps &mdash; all human colonists are sleeping and no danger is active. Result is cached per tick. Determines whether superfast is 6&times; or 12&times;.</p>
-  <p class="entry-modding">Patch NothingHappeningInGame to add custom "something is happening" logic.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#7</span>
-  <span class="entry-title">ExposeData (Serialization)</span>
-  <span class="entry-file">Verse/TickManager.cs:284-290</span>
-  <p class="entry-desc">Saves: ticksGameInt, gameStartAbsTick, startingYear, lastSettleTicks. TickLists are <strong>NOT</strong> saved &mdash; things re-register themselves on load.</p>
-  <p class="entry-connections">Connection: Rand state is NOT saved (&rarr; RI-01.03)</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#8</span>
-  <span class="entry-title">TicksAbs vs TicksGame</span>
-  <span class="entry-file">Verse/TickManager.cs:53-66</span>
-  <p class="entry-desc"><code>TicksGame</code> = ticks since game start (begins at 0). <code>TicksAbs</code> = TicksGame + gameStartAbsTick (absolute time since year 0). gameStartAbsTick is set by the scenario and remains constant.</p>
-  <p class="entry-modding">For time-based calculations use <code>GenTicks.TicksAbs</code>, not TicksGame.</p>
-  <p class="entry-connections">Connection: RandSeedForHour uses TicksAbs (&rarr; RI-01.09)</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#9</span>
-  <span class="entry-title">TickerType &amp; TimeSpeed (Enums)</span>
-  <span class="entry-file">Verse/TickerType.cs, Verse/TimeSpeed.cs</span>
-  <p class="entry-desc">
-    <code>TickerType</code>: Never (0), Normal (1), Rare (250), Long (2000).<br>
-    <code>TimeSpeed</code>: Paused (0&times;), Normal (1&times;), Fast (3&times;), Superfast (6-18&times;), Ultrafast (15-150&times;).
-  </p>
-  <p class="entry-modding">TickerType is set in ThingDef. TimeSpeed can be changed at runtime.</p>
+  <span class="entry-title">120-Tick Interval</span>
+  <span class="entry-file">Verse/MapTemperature.cs</span>
+  <p class="entry-desc">Temperature is <strong>not</strong> controlled via the TickList bucket system, but directly via a <code>TicksGame % 120 == 7</code> check in MapTemperatureTick. The offset 7 distributes the load across different ticks.</p>
+  <p class="entry-desc">At speed 1 (60 ticks/s): every ~2 seconds real time. At superfast (6&times;): every ~0.33 seconds.</p>
 </div>
 
 <div class="footer">

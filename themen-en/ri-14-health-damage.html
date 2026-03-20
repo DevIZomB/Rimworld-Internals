@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Health, Damage &amp; Injury &mdash; RW Internals</title>
+<title>Health, Damage &amp; Injury — RW Internals</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,64 +16,42 @@
     <span class="namespace">Namespace: Verse</span>
   </div>
   <h1>Health, Damage &amp; Injury</h1>
-  <p class="subtitle">Damage pipeline, hediffs and temperature effects</p>
+  <p class="subtitle">Temperature dependency: Hediffs from temperature and rot rate</p>
+</div>
+
+<div class="box box-info">
+  <div class="label">Temperature &rarr; Health Connection</div>
+  Temperature outside of <code>SafeTemperatureRange</code> automatically applies Hypothermia/Heatstroke hediffs.
+  Temperature also controls the decay rate of corpses and food.
 </div>
 
 <div class="entry">
   <span class="entry-id">#1</span>
-  <span class="entry-title">Pawn_HealthTracker</span>
-  <span class="entry-file">Verse/Pawn_HealthTracker.cs:1-~1200</span>
-  <p class="entry-desc">Health manager for every pawn. Manages state (Mobile/Down/Dead), AddHediff pipeline and CheckForStateChange after each damage or hediff update.</p>
-  <p class="entry-modding">PreApplyDamage Harmony prefix for damage reduction.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#2</span>
-  <span class="entry-title">DamageWorker</span>
-  <span class="entry-file">Verse/DamageWorker.cs:1-413</span>
-  <p class="entry-desc">Base damage calculation for buildings and plants. Contains the explosion system with radius calculation and cell iteration.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#3</span>
-  <span class="entry-title">DamageWorker_AddInjury</span>
-  <span class="entry-file">Verse/DamageWorker_AddInjury.cs:1-383</span>
-  <p class="entry-desc">Pawn-specific damage: armor penetration, damage propagation through body parts, instant-kill protection. <span class="tag tag-mp">MP-Critical</span> &mdash; Rand in instant-kill protection and body part selection.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#4</span>
-  <span class="entry-title">HealthUtility</span>
-  <span class="entry-file">Verse/HealthUtility.cs:1-879</span>
-  <p class="entry-desc">Static helper functions: GetHediffDefFromDamage, FixWorstHealthCondition (DevMode heal), DamageUntilDowned (for arrest/down scenarios).</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#5</span>
-  <span class="entry-title">HealthTuning (Constants)</span>
-  <span class="entry-file">Verse/HealthTuning.cs:1-150</span>
-  <p class="entry-desc">Central constants: HealPerDay = 8 (Tend) + 4 (Natural) + 8 (ImmunityGainSpeed), PainShock threshold = 0.8, Permanent chance = 2%.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#6</span>
-  <span class="entry-title">Temperature Hediffs</span>
+  <span class="entry-title">Temperature Hediffs (Automatic)</span>
   <span class="entry-file">RimWorld/HediffGiver_Heat.cs, RimWorld/HediffGiver_Hypothermia.cs</span>
-  <p class="entry-desc">Automatic hediff assignment based on room temperature vs. <code>SafeTemperatureRange</code>:</p>
+  <p class="entry-desc">Hediff assignment based on room temperature vs. <code>SafeTemperatureRange</code>:</p>
   <table>
     <tr><th>Condition</th><th>Hediff</th><th>Mechanism</th></tr>
     <tr><td>Temp &gt; SafeMax</td><td><code>Heatstroke</code></td><td>Severity increases proportional to overshoot</td></tr>
     <tr><td>Temp &lt; SafeMin</td><td><code>Hypothermia</code></td><td>Severity increases proportional to undershoot</td></tr>
   </table>
   <p class="entry-desc"><code>SafeTemperatureRange</code> = <code>ComfortableTemperatureRange</code> &plusmn; 10&deg;C. Apparel (parka, duster) extends the range. Genes can also shift it.</p>
-  <p class="entry-connections">Connection: &rarr; Temperature System (v2 main page), &rarr; RI-06 (Pawn)</p>
+  <p class="entry-desc">At severity 1.0: <strong>death</strong>. Severity decreases automatically when pawn returns to safe temperature.</p>
 </div>
 
 <div class="entry">
-  <span class="entry-id">#7</span>
-  <span class="entry-title">Rot Rate (Decay)</span>
+  <span class="entry-id">#2</span>
+  <span class="entry-title">Rot Rate (Decay Speed)</span>
   <span class="entry-file">Verse/GenTemperature.cs</span>
-  <p class="entry-desc">Temperature-dependent decay: 0&deg;C &rarr; 0% decay, 10&deg;C &rarr; 100% decay. Linear. Below 0&deg;C = frozen = no decay. Coolers (&lt;10&deg;C) slow down, freezers (&lt;0&deg;C) completely stop decay.</p>
+  <p class="entry-desc">Temperature-dependent decay &mdash; linear between 0&deg;C and 10&deg;C:</p>
+  <table>
+    <tr><th>Temperature</th><th>Decay</th><th>Meaning</th></tr>
+    <tr><td>&lt; 0&deg;C</td><td>0%</td><td>Frozen &mdash; no decay</td></tr>
+    <tr><td>0&deg;C</td><td>0%</td><td>Threshold</td></tr>
+    <tr><td>5&deg;C</td><td>50%</td><td>Cooler slows decay</td></tr>
+    <tr><td>&ge; 10&deg;C</td><td>100%</td><td>Full decay</td></tr>
+  </table>
+  <p class="entry-desc">This is why coolers (&lt;10&deg;C) and freezers (&lt;0&deg;C) work &mdash; both are directly controlled by the temperature equalization system.</p>
 </div>
 
 <div class="footer">

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Region-System &mdash; RW Internals</title>
+<title>Region-System — RW Internals</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,62 +16,53 @@
     <span class="namespace">Namespace: Verse</span>
   </div>
   <h1>Region-System</h1>
-  <p class="subtitle">12&times;12 Pathfinding-Grundbausteine &amp; Gefahren-Erkennung</p>
+  <p class="subtitle">Temperatur-Abh&auml;ngigkeit: Gefahren-Erkennung und Room-Hierarchie</p>
+</div>
+
+<div class="box box-info">
+  <div class="label">Temperatur &rarr; Region Verbindung</div>
+  Regions sind die Grundbausteine aus denen Districts und Rooms aufgebaut werden.
+  Die <strong>Room-Hierarchie</strong> (Region &rarr; District &rarr; Room) bestimmt wie Temperatur berechnet wird.
+  <code>DangerFor</code> nutzt die Raumtemperatur f&uuml;r Pawn-AI.
 </div>
 
 <div class="entry">
   <span class="entry-id">#1</span>
-  <span class="entry-title">Region</span>
-  <span class="entry-file">Verse/Region.cs:1-610</span>
-  <p class="entry-desc">12&times;12 Grundbaustein des Pathfinding-Systems. Enth&auml;lt <code>closedIndex[8]</code> f&uuml;r parallele BFS-Traversals, <code>ListerThings</code> f&uuml;r schnelle Thing-Queries, und Danger-Cache f&uuml;r Pawn-AI.</p>
+  <span class="entry-title">Region &rarr; District &rarr; Room</span>
+  <p class="entry-desc">
+    <strong>Region</strong> = 12&times;12 Zellen, Grundbaustein.<br>
+    <strong>District</strong> = zusammenh&auml;ngende Regions gleichen Typs (Normal/Fence/ImpassableFreeAir).<br>
+    <strong>Room</strong> = Districts die &uuml;ber Portal-Regions (T&uuml;ren) verbunden sind.
+  </p>
+  <p class="entry-desc"><strong>Temperatur-Bezug:</strong> Die Temperatur wird pro <strong>Room</strong> berechnet, nicht pro Region oder District. Ein Raum kann mehrere Districts haben, aber hat eine einzige Temperatur.</p>
+  <p class="entry-desc"><span class="file-ref">Verse/Room.cs:1-937</span> <span class="file-ref">Verse/RegionAndRoomUpdater.cs:1-409</span></p>
 </div>
 
 <div class="entry">
   <span class="entry-id">#2</span>
-  <span class="entry-title">RegionGrid</span>
-  <span class="entry-file">Verse/RegionGrid.cs:1-253</span>
-  <p class="entry-desc"><code>Region[]</code> Array &uuml;ber die gesamte Map. Auto-Rebuild bei Terrain-/Geb&auml;ude-&Auml;nderungen. <code>UpdateClean</code> verarbeitet max. 16 dirty Regions pro Frame.</p>
+  <span class="entry-title">DangerFor &mdash; Temperatur-Gefahren</span>
+  <span class="entry-file">Verse/Region.cs</span>
+  <p class="entry-desc"><code>Region.DangerFor(Pawn)</code> pr&uuml;ft die Raumtemperatur gegen den <code>SafeTemperatureRange</code> des Pawns. Ergebnis wird gecacht.</p>
+  <table>
+    <tr><th>Danger-Level</th><th>Bedingung</th><th>Pawn-Verhalten</th></tr>
+    <tr><td>None</td><td>Temperatur innerhalb SafeRange</td><td>Normal</td></tr>
+    <tr><td>Some</td><td>Feindliche Pr&auml;senz</td><td>Vorsichtig</td></tr>
+    <tr><td>Deadly</td><td>Temperatur au&szlig;erhalb SafeRange / Vakuum</td><td><strong>Meidet den Raum</strong></td></tr>
+  </table>
+  <p class="entry-desc">Das bedeutet: Pawns gehen nicht freiwillig in Gefrierkammern oder brennende R&auml;ume, es sei denn sie werden drafted.</p>
 </div>
 
 <div class="entry">
   <span class="entry-id">#3</span>
-  <span class="entry-title">RegionTraverser (BFS)</span>
-  <span class="entry-file">Verse/RegionTraverser.cs:1-242</span>
-  <p class="entry-desc">BFS-Traversal mit Worker-Pool (8 Worker). Verwendet closedIndex-Trick: statt visited-HashSet wird ein globaler Counter pro Worker erh&ouml;ht &mdash; O(1) statt O(n) Reset.</p>
-  <p class="entry-modding"><code>BreadthFirstTraverse</code> f&uuml;r eigene Erreichbarkeits-Queries nutzen.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#4</span>
-  <span class="entry-title">District</span>
-  <span class="entry-file">Verse/District.cs:1-338</span>
-  <p class="entry-desc">Zusammenfassung mehrerer Regions zu einem logischen Bereich. Room-Zugeh&ouml;rigkeit, <code>OpenRoofCountStopAt</code> mit Lazy-Evaluation f&uuml;r Performance.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#5</span>
-  <span class="entry-title">RegionType (Flags-Enum)</span>
-  <span class="entry-file">Verse/RegionType.cs:1-16</span>
-  <p class="entry-desc">Vier Typen: <strong>Normal</strong> (begehbar), <strong>Portal</strong> (T&uuml;ren), <strong>Fence</strong> (Z&auml;une, blockiert Tiere), <strong>Impassable</strong> (W&auml;nde/Felsen).</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#6</span>
-  <span class="entry-title">DangerFor (Gefahren-Erkennung)</span>
-  <span class="entry-file">Verse/Region.cs</span>
-  <p class="entry-desc"><code>Region.DangerFor(Pawn)</code> pr&uuml;ft Raumtemperatur gegen <code>SafeTemperatureRange</code> des Pawns. Ergebnis wird gecacht. Pawns meiden Regionen au&szlig;erhalb ihres Temperaturbereichs automatisch.</p>
-  <p class="entry-desc">Danger-Levels: None, Some (feindliche Pr&auml;senz), Deadly (Temperatur/Vakuum).</p>
-  <p class="entry-connections">Verbindung: &rarr; Temperatur-System (v2 Hauptseite), &rarr; RI-06 (Pawn ComfortableTemperatureRange)</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#7</span>
-  <span class="entry-title">Region &rarr; District &rarr; Room Hierarchie</span>
+  <span class="entry-title">Room-Rebuild &rarr; RegenerateEqualizationData</span>
+  <span class="entry-file">Verse/RegionAndRoomUpdater.cs:1-409</span>
+  <p class="entry-desc">Wenn eine Wand/T&uuml;r gebaut oder entfernt wird:</p>
   <p class="entry-desc">
-    <strong>Region</strong> (12&times;12 Zellen) &rarr; <strong>District</strong> (verbundene Regions gleichen Typs) &rarr; <strong>Room</strong> (Districts verbunden &uuml;ber Portal-Regions/T&uuml;ren).
-    Ein Room kann mehrere Districts haben. <code>Room.UsesOutdoorTemperature</code> bestimmt ob der Raum als Outdoor gilt (&ge;25% offen ODER TouchesMapEdge).
+    Zelle dirty &rarr; RegenerateNewRegions &rarr; FloodAndSetNewRegionIndex &rarr;
+    CreateOrAttachToExistingDistricts &rarr; CombineDistrictsIntoRooms (DFS) &rarr;
+    <strong>RegenerateEqualizationData</strong> &rarr; <strong>Shuffle()</strong>
   </p>
-  <p class="entry-connections">Verbindung: &rarr; Temperatur-System (Room-Hierarchie Sektion)</p>
+  <p class="entry-desc"><span class="tag tag-mp">MP-Kritisch</span> &mdash; Die gesamte Rebuild-Pipeline muss auf allen Clients identisch und zum gleichen Zeitpunkt ablaufen.</p>
 </div>
 
 <div class="footer">

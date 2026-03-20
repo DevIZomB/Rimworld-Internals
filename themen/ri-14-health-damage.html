@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Health, Damage &amp; Injury &mdash; RW Internals</title>
+<title>Health, Damage &amp; Injury — RW Internals</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,64 +16,42 @@
     <span class="namespace">Namespace: Verse</span>
   </div>
   <h1>Health, Damage &amp; Injury</h1>
-  <p class="subtitle">Schadens-Pipeline, Hediffs und Temperatur-Auswirkungen</p>
+  <p class="subtitle">Temperatur-Abh&auml;ngigkeit: Hediffs durch Temperatur und Rot-Rate</p>
+</div>
+
+<div class="box box-info">
+  <div class="label">Temperatur &rarr; Health Verbindung</div>
+  Temperatur au&szlig;erhalb der <code>SafeTemperatureRange</code> vergibt automatisch Hypothermia/Heatstroke Hediffs.
+  Temperatur steuert au&szlig;erdem die Verwesungs-Rate von Leichen und Essen.
 </div>
 
 <div class="entry">
   <span class="entry-id">#1</span>
-  <span class="entry-title">Pawn_HealthTracker</span>
-  <span class="entry-file">Verse/Pawn_HealthTracker.cs:1-~1200</span>
-  <p class="entry-desc">Health-Manager jedes Pawns. Verwaltet State (Mobile/Down/Dead), AddHediff-Pipeline und CheckForStateChange nach jedem Schaden oder Hediff-Update.</p>
-  <p class="entry-modding">PreApplyDamage Harmony-Prefix f&uuml;r Schadensreduktion.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#2</span>
-  <span class="entry-title">DamageWorker</span>
-  <span class="entry-file">Verse/DamageWorker.cs:1-413</span>
-  <p class="entry-desc">Basis-Schadensberechnung f&uuml;r Geb&auml;ude und Pflanzen. Enth&auml;lt das Explosion-System mit Radius-Berechnung und Zell-Iteration.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#3</span>
-  <span class="entry-title">DamageWorker_AddInjury</span>
-  <span class="entry-file">Verse/DamageWorker_AddInjury.cs:1-383</span>
-  <p class="entry-desc">Pawn-spezifischer Schaden: Armor-Penetration, Schadens-Propagation durch K&ouml;rperteile, Instant-Kill-Protection. <span class="tag tag-mp">MP-Kritisch</span> &mdash; Rand in Instant-Kill-Protection und K&ouml;rperteil-Auswahl.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#4</span>
-  <span class="entry-title">HealthUtility</span>
-  <span class="entry-file">Verse/HealthUtility.cs:1-879</span>
-  <p class="entry-desc">Statische Hilfsfunktionen: GetHediffDefFromDamage, FixWorstHealthCondition (DevMode-Heal), DamageUntilDowned (f&uuml;r Arrest/Down-Scenarios).</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#5</span>
-  <span class="entry-title">HealthTuning (Konstanten)</span>
-  <span class="entry-file">Verse/HealthTuning.cs:1-150</span>
-  <p class="entry-desc">Zentrale Konstanten: HealPerDay = 8 (Tend) + 4 (Natural) + 8 (ImmunityGainSpeed), PainShock-Schwelle = 0.8, Permanent-Chance = 2%.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#6</span>
-  <span class="entry-title">Temperatur-Hediffs</span>
+  <span class="entry-title">Temperatur-Hediffs (Automatisch)</span>
   <span class="entry-file">RimWorld/HediffGiver_Heat.cs, RimWorld/HediffGiver_Hypothermia.cs</span>
-  <p class="entry-desc">Automatische Hediff-Vergabe basierend auf Raumtemperatur vs. <code>SafeTemperatureRange</code>:</p>
+  <p class="entry-desc">Hediff-Vergabe basierend auf Raumtemperatur vs. <code>SafeTemperatureRange</code>:</p>
   <table>
     <tr><th>Bedingung</th><th>Hediff</th><th>Mechanismus</th></tr>
     <tr><td>Temp &gt; SafeMax</td><td><code>Heatstroke</code></td><td>Severity steigt proportional zur &Uuml;berschreitung</td></tr>
     <tr><td>Temp &lt; SafeMin</td><td><code>Hypothermia</code></td><td>Severity steigt proportional zur Unterschreitung</td></tr>
   </table>
   <p class="entry-desc"><code>SafeTemperatureRange</code> = <code>ComfortableTemperatureRange</code> &plusmn; 10&deg;C. Apparel (Parka, Duster) erweitert den Bereich. Gene k&ouml;nnen ihn ebenfalls verschieben.</p>
-  <p class="entry-connections">Verbindung: &rarr; Temperatur-System (v2 Hauptseite), &rarr; RI-06 (Pawn)</p>
+  <p class="entry-desc">Bei Severity 1.0: <strong>Tod</strong>. Severity sinkt automatisch wenn Pawn wieder in sicherer Temperatur ist.</p>
 </div>
 
 <div class="entry">
-  <span class="entry-id">#7</span>
-  <span class="entry-title">Rot-Rate (Verwesung)</span>
+  <span class="entry-id">#2</span>
+  <span class="entry-title">Rot-Rate (Verwesungs-Geschwindigkeit)</span>
   <span class="entry-file">Verse/GenTemperature.cs</span>
-  <p class="entry-desc">Temperaturabh&auml;ngige Verwesung: 0&deg;C &rarr; 0% Verfall, 10&deg;C &rarr; 100% Verfall. Linear. Unter 0&deg;C = gefroren = kein Verfall. K&uuml;hlr&auml;ume (&lt;10&deg;C) verlangsamen, Gefriertruhen (&lt;0&deg;C) stoppen Verwesung komplett.</p>
+  <p class="entry-desc">Temperaturabh&auml;ngige Verwesung — linear zwischen 0&deg;C und 10&deg;C:</p>
+  <table>
+    <tr><th>Temperatur</th><th>Verfall</th><th>Bedeutung</th></tr>
+    <tr><td>&lt; 0&deg;C</td><td>0%</td><td>Gefroren &mdash; kein Verfall</td></tr>
+    <tr><td>0&deg;C</td><td>0%</td><td>Grenze</td></tr>
+    <tr><td>5&deg;C</td><td>50%</td><td>K&uuml;hlraum verlangsamt</td></tr>
+    <tr><td>&ge; 10&deg;C</td><td>100%</td><td>Voller Verfall</td></tr>
+  </table>
+  <p class="entry-desc">Deshalb funktionieren K&uuml;hlr&auml;ume (&lt;10&deg;C) und Gefriertruhen (&lt;0&deg;C) &mdash; beides wird direkt durch das Temperatur-Equalization-System gesteuert.</p>
 </div>
 
 <div class="footer">

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pawn &mdash; RW Internals</title>
+<title>Pawn — RW Internals</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,75 +16,39 @@
     <span class="namespace">Namespace: Verse</span>
   </div>
   <h1>Pawn</h1>
-  <p class="subtitle">Komplexeste Klasse in RimWorld &mdash; ~45 Tracker, ~100+ Properties</p>
+  <p class="subtitle">Temperatur-Abh&auml;ngigkeit: ComfortableTemperatureRange bestimmt ob der Pawn leidet</p>
+</div>
+
+<div class="box box-info">
+  <div class="label">Temperatur &rarr; Pawn Verbindung</div>
+  Die Raumtemperatur wird gegen den <code>ComfortableTemperatureRange</code> des Pawns gepr&uuml;ft.
+  Au&szlig;erhalb &rarr; Hypothermia/Heatstroke Hediffs. Apparel und Gene verschieben den Bereich.
 </div>
 
 <div class="entry">
   <span class="entry-id">#1</span>
-  <span class="entry-title">~45 Tracker-Felder</span>
-  <span class="entry-file">Verse/Pawn.cs:16-134</span>
-  <p class="entry-desc">Jeder Pawn besitzt ~45 Tracker-Felder (health, jobs, needs, mindState, stances, skills, story, relations, etc.). Jeder Tracker ist ein eigenes Objekt mit eigenem Tick-Zyklus.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#2</span>
-  <span class="entry-title">Pawn.Tick (Reihenfolge)</span>
-  <span class="entry-file">Verse/Pawn.cs:1525-1603</span>
-  <p class="entry-desc"><span class="tag tag-mp">MP-Kritisch</span> &mdash; ~20 Tracker werden in fester Reihenfolge getickt: stances &rarr; pather &rarr; jobs &rarr; health &rarr; mindState &rarr; needs &rarr; etc. Reihenfolge ist gameplay-relevant.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#3</span>
-  <span class="entry-title">Pawn.TickInterval (Kamera-abh&auml;ngig)</span>
-  <span class="entry-file">Verse/Pawn.cs:1605-1716</span>
-  <p class="entry-desc"><span class="tag tag-mp">MP-Kritisch</span> &mdash; Delta-basiertes Ticking. Interval h&auml;ngt von der Kamera-Distanz ab (n&auml;her = h&auml;ufiger). Im Multiplayer muss das synchronisiert werden, da verschiedene Spieler verschiedene Kamerapositionen haben.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#4</span>
-  <span class="entry-title">Kern-Subsysteme (RI-15)</span>
-  <p class="entry-desc">Die wichtigsten der ~45 Tracker:</p>
+  <span class="entry-title">ComfortableTemperatureRange</span>
+  <span class="entry-file">Verse/Pawn.cs</span>
+  <p class="entry-desc">Pawn-Stat der den Komfort-Bereich definiert. Standard: ca. <strong>16&deg;C bis 26&deg;C</strong>. Wird modifiziert durch:</p>
   <table>
-    <tr><th>Tracker</th><th>Funktion</th><th>MP-Hinweis</th></tr>
-    <tr><td><code>NeedsTracker</code></td><td>Verwaltet alle Needs (Food, Rest, Joy, Outdoors...)</td><td>Need_Rest nutzt Rand.MTBEventOccurs</td></tr>
-    <tr><td><code>MindState</code></td><td>Mental state, feindliche Erkennung, Arbeitsspeicher</td><td>Rand in Feind-Suche</td></tr>
-    <tr><td><code>Pawn_PathFollower</code></td><td>Pfadfindung, n&auml;chster Schritt pro Tick</td><td>Pathfinding nutzt Region-System</td></tr>
-    <tr><td><code>Pawn_JobTracker</code></td><td>Aktuelle Arbeit, Job-Queue</td><td>ThinkTree-Evaluation nutzt Rand</td></tr>
-    <tr><td><code>Pawn_HealthTracker</code></td><td>HP, Hediffs, State (Mobile/Down/Dead)</td><td>Rand in Schadens-Propagation</td></tr>
-    <tr><td><code>Pawn_StanceTracker</code></td><td>Warteposition, Cooldown-Timer</td><td></td></tr>
-    <tr><td><code>AgeTracker</code></td><td>Alter, Geburtstag, Wachstums-Momente</td><td></td></tr>
-    <tr><td><code>Pawn_InventoryTracker</code></td><td>Inventar (getragene Items)</td><td></td></tr>
-    <tr><td><code>Pawn_EquipmentTracker</code></td><td>Ausr&uuml;stung (Waffe)</td><td></td></tr>
-    <tr><td><code>Pawn_DraftController</code></td><td>Eingezogen/Kampfbereit</td><td></td></tr>
+    <tr><th>Modifikator</th><th>Beispiel</th><th>Effekt</th></tr>
+    <tr><td>Apparel</td><td>Parka, Duster</td><td>Erweitert Min/Max um Insulation-Stats</td></tr>
+    <tr><td>Gene</td><td>Heat-/Cold-Resistant</td><td>Verschiebt den Bereich</td></tr>
+    <tr><td>Hediffs</td><td>Burn Scar</td><td>Kann Bereich ver&auml;ndern</td></tr>
   </table>
 </div>
 
 <div class="entry">
-  <span class="entry-id">#5</span>
-  <span class="entry-title">SpawnSetup</span>
-  <span class="entry-file">Verse/Pawn.cs:1345-1455</span>
-  <p class="entry-desc">Spawn-Logik: Dead-Pawns werden zu Corpse konvertiert, WorldPawns-Liste wird aktualisiert, PawnComponentsUtility initialisiert alle Tracker die noch null sind.</p>
+  <span class="entry-id">#2</span>
+  <span class="entry-title">SafeTemperatureRange</span>
+  <p class="entry-desc"><code>SafeTemperatureRange</code> = <code>ComfortableTemperatureRange</code> &plusmn; <strong>10&deg;C Puffer</strong>. Innerhalb von Comfortable: kein Effekt. Zwischen Comfortable und Safe: leichtes Unwohlsein. Au&szlig;erhalb von Safe: Hypothermia/Heatstroke Hediffs beginnen.</p>
 </div>
 
 <div class="entry">
-  <span class="entry-id">#6</span>
-  <span class="entry-title">Kill (6 Phasen)</span>
-  <span class="entry-file">Verse/Pawn.cs:2075-2326</span>
-  <p class="entry-desc"><span class="tag tag-mp">MP-Kritisch</span> &mdash; 250 Zeilen, 6 Phasen: PreKill-Hooks &rarr; Health-State &rarr; Corpse-Spawn &rarr; Relations-Notify &rarr; WorldPawns &rarr; PostKill. Rand f&uuml;r Corpse-Rot-Variation.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#7</span>
-  <span class="entry-title">~100+ Properties</span>
-  <span class="entry-file">Verse/Pawn.cs:213-800</span>
-  <p class="entry-desc">&Uuml;ber 100 Properties f&uuml;r schnellen Zugriff: IsColonist, IsPrisoner, IsSlave, Faction, Position, Drafted, Downed, Dead, InMentalState, etc.</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#8</span>
-  <span class="entry-title">Temperatur-Verbindung</span>
-  <p class="entry-desc"><code>ComfortableTemperatureRange</code> = Pawn-Stat &plusmn; 10&deg;C Puffer (<code>SafeTemperatureRange</code>). Au&szlig;erhalb davon &rarr; Hypothermia/Heatstroke Hediffs. Apparel-Stats modifizieren den Bereich.</p>
-  <p class="entry-connections">Verbindung: &rarr; RI-14 (Health/Damage), &rarr; RI-22 (Need_Outdoors/Indoors)</p>
+  <span class="entry-id">#3</span>
+  <span class="entry-title">Region.DangerFor &mdash; AI-Vermeidung</span>
+  <p class="entry-desc">Pawns meiden automatisch R&auml;ume au&szlig;erhalb ihres <code>SafeTemperatureRange</code>. Die Pawn-AI pr&uuml;ft &uuml;ber <code>Region.DangerFor(pawn)</code> ob ein Raum als "Deadly" eingestuft wird. Das beeinflusst Pathfinding und Job-Auswahl.</p>
+  <p class="entry-connections">Verbindung: &rarr; RI-11 (Region DangerFor), &rarr; RI-14 (Temperatur-Hediffs)</p>
 </div>
 
 <div class="footer">

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Need System (Outdoors/Indoors) &mdash; RW Internals</title>
+<title>Need System (Outdoors/Indoors) — RW Internals</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,70 +16,38 @@
     <span class="namespace">Namespace: RimWorld</span>
   </div>
   <h1>Need_Outdoors &amp; Need_Indoors</h1>
-  <p class="subtitle">Fresh air and shelter needs &mdash; position-based delta calculation</p>
+  <p class="subtitle">Temperature dependency: The same room properties control both systems</p>
 </div>
 
 <div class="box box-info">
-  <div class="label">Temperature Connection</div>
-  Both needs depend on <code>UsesOutdoorTemperature</code> and <code>RoofDef</code> &mdash;
-  the same properties that control the room temperature system.
+  <div class="label">Temperature &rarr; Need Connection</div>
+  <code>UsesOutdoorTemperature</code> and <code>RoofDef</code> control both the <strong>temperature calculation</strong>
+  and the <strong>need delta</strong>. Changes to the roof or room layout affect both systems simultaneously.
 </div>
 
 <div class="entry">
   <span class="entry-id">#1</span>
-  <span class="entry-title">Need_Outdoors</span>
-  <span class="entry-file">RimWorld/Need_Outdoors.cs:1-144</span>
-  <p class="entry-desc">Fresh air need. Delta is calculated purely based on position &mdash; no Rand involved.</p>
+  <span class="entry-title">Shared Properties</span>
+  <p class="entry-desc">Temperature and needs use the same room properties:</p>
   <table>
-    <tr><th>Position</th><th>Delta per Tick</th></tr>
-    <tr><td>Outdoor + NoRoof</td><td><code>+8.0</code></td></tr>
-    <tr><td>Outdoor + ThinRoof</td><td><code>+5.0</code> (estimated, reduced)</td></tr>
-    <tr><td>Indoor + NoRoof</td><td><code>+3.0</code></td></tr>
-    <tr><td>Indoor + ThinRoof (minimum: 0.2)</td><td><code>-0.32</code></td></tr>
-    <tr><td>Indoor + ThickRoof</td><td><code>-0.45</code></td></tr>
+    <tr><th>Property</th><th>Temperature System</th><th>Need System</th></tr>
+    <tr><td><code>UsesOutdoorTemperature</code></td><td>&ge;25% open &rarr; outdoor temp, no equalization</td><td>Determines if pawn is "indoors" or "outdoors"</td></tr>
+    <tr><td><code>RoofDef</code> (NoRoof/Thin/Thick)</td><td>Controls equalization rate (ThinRoof vs NoRoof vs Deep)</td><td>Controls need delta (+8 at NoRoof, -0.45 at ThickRoof)</td></tr>
+    <tr><td><code>PsychologicallyOutdoors</code></td><td>&ge;300 open cells</td><td>Pawn "feels outdoors" &rarr; positive delta</td></tr>
   </table>
-  <p class="entry-desc"><strong>InBed modifier:</strong> When delta is negative and pawn is in bed &rarr; <code>&times;0.2</code> (slower decay while sleeping).</p>
-  <p class="entry-modding">Patchable via Harmony. Delta values are fields, not constants.</p>
 </div>
 
 <div class="entry">
   <span class="entry-id">#2</span>
-  <span class="entry-title">6 Severity Categories</span>
-  <p class="entry-desc">
-    <strong>Free</strong> (100-80%) &rarr; <strong>Satisfied</strong> (80-60%) &rarr; <strong>Want</strong> (60-40%) &rarr;
-    <strong>Need</strong> (40-20%) &rarr; <strong>CabinFeverSevere</strong> (20-5%) &rarr; <strong>Entombed</strong> (5-0%)
-  </p>
-  <p class="entry-desc">Low values cause MentalBreak risk (Wandering, Tantrum).</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#3</span>
-  <span class="entry-title">Need_Indoors</span>
-  <span class="entry-file">RimWorld/Need_Indoors.cs:1-109</span>
-  <p class="entry-desc">Opposite of Need_Outdoors for pawns with <code>PrefersIndoors</code> trait.
-  Increases when indoor with ThickRoof/ThinRoof, decreases when outdoors.
-  <strong>Mutually exclusive</strong> &mdash; a pawn has either Need_Outdoors OR Need_Indoors, never both.</p>
-  <p class="entry-desc">Disabled when <code>PrefersOutdoors</code> is active (and vice versa).</p>
-</div>
-
-<div class="entry">
-  <span class="entry-id">#4</span>
-  <span class="entry-title">Connection to Room System</span>
-  <p class="entry-desc">
-    <strong>Key properties:</strong><br>
-    &bull; <code>Room.UsesOutdoorTemperature</code> &mdash; &ge;25% no roof OR TouchesMapEdge<br>
-    &bull; <code>Room.PsychologicallyOutdoors</code> &mdash; &ge;300 open roof cells OR (MapEdge + &ge;50% open)<br>
-    &bull; <code>RoofDef</code> (NoRoof / ThinRoof / ThickRoof) determines the specific delta value<br>
-    &bull; <code>GlowGrid</code> / <code>PsychGlow</code> additionally affects both needs
-  </p>
-  <p class="entry-connections">Cross-reference: RI-21 (Room/Temperature), RI-06 (Pawn), RI-14 (Health)</p>
-</div>
-
-<div class="box box-warn">
-  <div class="label">MP Note</div>
-  Need_Outdoors/Indoors themselves consume <strong>no Rand</strong>. However:
-  <code>Need_Rest</code> uses <code>Rand.MTBEventOccurs</code> and <code>Need_Food</code> uses <code>Rand.ValueSeeded</code> &mdash;
-  other needs in the same NeedsTracker are MP-critical!
+  <span class="entry-title">Need_Outdoors Delta by Position</span>
+  <span class="entry-file">RimWorld/Need_Outdoors.cs:1-144</span>
+  <table>
+    <tr><th>Position</th><th>Delta</th></tr>
+    <tr><td>Outdoor + NoRoof</td><td><code>+8.0</code> (fast recovery)</td></tr>
+    <tr><td>Indoor + ThickRoof</td><td><code>-0.45</code> (slow decay)</td></tr>
+    <tr><td>InBed + negative delta</td><td><code>&times;0.2</code> (sleep modifier)</td></tr>
+  </table>
+  <p class="entry-desc">Mutually exclusive: <code>PrefersIndoors</code> &rarr; Need_Indoors instead of Need_Outdoors.</p>
 </div>
 
 <div class="footer">
