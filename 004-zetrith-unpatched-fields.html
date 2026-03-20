@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RW Internals — MP-Critical Fields Zetrith Doesn't Patch</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232730;
+    --border: #2e3340;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #8b5cf6;
+    --accent2: #a78bfa;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --orange: #f97316;
+    --cyan: #06b6d4;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    line-height: 1.7;
+    padding: 2rem;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  .header { border-bottom: 2px solid var(--accent); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+  .header .meta { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .header .meta span { background: var(--surface2); padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem; color: var(--text-dim); }
+  .header .meta .topic { background: var(--accent); color: #fff; font-weight: 600; }
+  .header h1 { font-size: 1.8rem; color: var(--accent2); margin-bottom: 0.3rem; }
+  .header .question { font-size: 1.1rem; color: var(--text-dim); font-style: italic; }
+
+  h2 { color: var(--accent2); font-size: 1.3rem; margin: 2rem 0 1rem 0; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+  h3 { color: var(--cyan); font-size: 1.05rem; margin: 1.2rem 0 0.5rem 0; }
+  p { margin-bottom: 0.8rem; }
+
+  .file-ref { display: inline-flex; align-items: center; gap: 0.3rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.5rem; font-family: 'Cascadia Code', monospace; font-size: 0.85rem; color: var(--cyan); }
+  .file-ref::before { content: '\1F4C4'; font-size: 0.75rem; }
+
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.92rem; }
+  th { background: var(--surface2); color: var(--accent2); text-align: left; padding: 0.6rem 0.8rem; border-bottom: 2px solid var(--accent); }
+  td { padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: var(--surface); }
+  td code { background: var(--surface2); padding: 0.1rem 0.4rem; border-radius: 3px; font-family: 'Cascadia Code', monospace; font-size: 0.85rem; color: var(--orange); }
+
+  .box { border-radius: 8px; padding: 1rem 1.2rem; margin: 1rem 0; border-left: 4px solid; }
+  .box-info { background: rgba(59, 130, 246, 0.08); border-color: var(--blue); }
+  .box-warn { background: rgba(234, 179, 8, 0.08); border-color: var(--yellow); }
+  .box-danger { background: rgba(239, 68, 68, 0.08); border-color: var(--red); }
+  .box-success { background: rgba(34, 197, 94, 0.08); border-color: var(--green); }
+  .box .label { font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.4rem; }
+  .box-info .label { color: var(--blue); }
+  .box-warn .label { color: var(--yellow); }
+  .box-danger .label { color: var(--red); }
+  .box-success .label { color: var(--green); }
+
+  .source-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin: 0.8rem 0; }
+  .source-card h4 { color: var(--orange); font-size: 0.95rem; margin-bottom: 0.4rem; }
+  .source-card .desc { color: var(--text-dim); font-size: 0.9rem; }
+
+  .tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.78rem; font-weight: 600; }
+  .tag-patched { background: rgba(34,197,94,0.2); color: var(--green); }
+  .tag-unpatched { background: rgba(239,68,68,0.2); color: var(--red); }
+  .tag-partial { background: rgba(234,179,8,0.2); color: var(--yellow); }
+  .tag-mp { background: rgba(239,68,68,0.2); color: var(--red); }
+  .tag-risk-high { background: rgba(239,68,68,0.2); color: var(--red); }
+  .tag-risk-med { background: rgba(234,179,8,0.2); color: var(--yellow); }
+  .tag-risk-low { background: rgba(59,130,246,0.2); color: var(--blue); }
+
+  .category-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  .cat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+  .cat-card h4 { font-size: 0.9rem; margin-bottom: 0.5rem; }
+  .cat-card.patched { border-color: var(--green); }
+  .cat-card.patched h4 { color: var(--green); }
+  .cat-card.unpatched { border-color: var(--red); }
+  .cat-card.unpatched h4 { color: var(--red); }
+  .cat-card ul { padding-left: 1.2rem; font-size: 0.85rem; color: var(--text-dim); }
+  .cat-card ul li { margin-bottom: 0.2rem; }
+
+  .confidence { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0; }
+  .confidence-bar { flex: 1; height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; max-width: 200px; }
+  .confidence-fill { height: 100%; border-radius: 4px; }
+
+  .gap-entry { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin: 0.8rem 0; }
+  .gap-entry .gap-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; }
+  .gap-entry .gap-title { color: var(--text); font-weight: 600; font-size: 0.95rem; }
+  .gap-entry .gap-desc { color: var(--text-dim); font-size: 0.88rem; }
+  .gap-entry .gap-impact { color: var(--orange); font-size: 0.85rem; margin-top: 0.3rem; }
+  .gap-entry .gap-fix { color: var(--cyan); font-size: 0.85rem; margin-top: 0.3rem; }
+
+  .flow { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; padding: 1rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); }
+  .flow-step { background: var(--surface2); border: 1px solid var(--accent); border-radius: 6px; padding: 0.4rem 0.8rem; font-size: 0.88rem; color: var(--accent2); white-space: nowrap; }
+  .flow-arrow { color: var(--text-dim); font-size: 1.2rem; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; margin: 1.5rem 0; }
+  .stat-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center; }
+  .stat-box .num { font-size: 1.8rem; font-weight: 700; }
+  .stat-box .label { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.2rem; }
+
+  .footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 0.82rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="meta">
+    <span class="topic">Multiplayer Sync Gaps</span>
+    <span>Query #004</span>
+    <span>2026-03-20</span>
+    <span>Namespace: Verse + RimWorld</span>
+    <span>200+ RL-Findings cross-referenced</span>
+  </div>
+  <h1>MP-Critical Fields Zetrith Doesn't Patch</h1>
+  <p class="question">"Which multiplayer-critical fields and code paths are NOT covered by Zetrith's Multiplayer mod?"</p>
+</div>
+
+<!-- Confidence -->
+<div class="confidence">
+  <span style="font-size:0.85rem; color:var(--text-dim);">Answer confidence:</span>
+  <div class="confidence-bar"><div class="confidence-fill" style="width:85%; background:linear-gradient(90deg, var(--green), var(--yellow));"></div></div>
+  <span style="font-size:0.85rem; color:var(--yellow); font-weight:600;">85%</span>
+  <span style="font-size:0.78rem; color:var(--text-dim);">&mdash; Based on Zetrith source + 200+ decompiled findings. Some edge cases may be handled by async tick system implicitly.</span>
+</div>
+
+<!-- TL;DR -->
+<div class="box box-danger">
+  <div class="label">Summary</div>
+  <strong>Zetrith's MP mod covers ~70 SyncFields, ~200 SyncMethods, ~200 SyncDelegates, and ~40 Harmony determinism patches.</strong>
+  This analysis identified <strong>7 categories of unpatched gaps</strong> totaling 30+ specific fields and code paths
+  that could cause desync in edge cases. Most critical: <strong>visual Rand in tick code</strong>,
+  <strong>constructor Rand before PushState</strong>, and <strong>float-point accumulation drift</strong>.
+  <br><br>
+  Zetrith's lockstep system handles MOST determinism implicitly &mdash; these gaps are the places where
+  client-local state can still leak into the simulation.
+</div>
+
+<!-- Stats Overview -->
+<div class="stat-grid">
+  <div class="stat-box">
+    <div class="num" style="color:var(--green);">~70</div>
+    <div class="label">SyncFields Patched</div>
+  </div>
+  <div class="stat-box">
+    <div class="num" style="color:var(--green);">~440</div>
+    <div class="label">SyncMethods + Delegates</div>
+  </div>
+  <div class="stat-box">
+    <div class="num" style="color:var(--green);">~40</div>
+    <div class="label">Determinism Patches</div>
+  </div>
+  <div class="stat-box">
+    <div class="num" style="color:var(--red);">30+</div>
+    <div class="label">Unpatched Gaps Found</div>
+  </div>
+</div>
+
+<!-- What Zetrith DOES Patch -->
+<h2>What Zetrith Already Covers <span class="tag tag-patched">REFERENCE</span></h2>
+<p style="color:var(--text-dim); font-size:0.9rem;">
+  For context: these are the major categories Zetrith handles correctly. Gaps listed below are things <strong>outside</strong> this coverage.
+</p>
+
+<div class="category-grid">
+  <div class="cat-card patched">
+    <h4>SyncFields (UI Settings)</h4>
+    <ul>
+      <li>Pawn settings (medCare, selfTend, hostility, etc.)</li>
+      <li>PlaySettings (autoHome, autoRebuild, care defaults)</li>
+      <li>Bill production (paused, repeatMode, quality, etc.)</li>
+      <li>DrugPolicy entries (7 fields per drug)</li>
+      <li>Storyteller (def, difficulty) &mdash; host-only</li>
+      <li>Gene gizmos, Activity, Refuelable, Mech controls</li>
+      <li>AutoSlaughter configs, ThingFilter, Study, Entity</li>
+    </ul>
+  </div>
+  <div class="cat-card patched">
+    <h4>Determinism Patches</h4>
+    <ul>
+      <li><code>PawnTweener</code> &mdash; root position during ticks</li>
+      <li><code>Zone.Cells</code> / <code>Plan.Cells</code> &mdash; shuffle only during ticks</li>
+      <li><code>GenSpawn.Rot4.Random</code> &mdash; seeded by thingIDNumber</li>
+      <li><code>GrammarResolver</code> / <code>NameGenerator</code> &mdash; PushState isolation</li>
+      <li><code>PawnGraphics</code> &mdash; PushState(thingIDNumber)</li>
+      <li><code>MoteMaker.MakeStaticMote</code> &mdash; deterministic spawning</li>
+      <li><code>SituationalThoughts</code> &mdash; block recalc in interface</li>
+      <li><code>StatWorker</code> / <code>PawnCapacities</code> &mdash; interface cache isolation</li>
+      <li><code>MapBrightness</code> &mdash; deltaTime &rarr; fixed constant</li>
+      <li><code>UndercaveRockCollapse</code> &mdash; PushState isolation</li>
+      <li><code>ApparelSort</code> &mdash; thingIDNumber tiebreaker</li>
+      <li><code>EmergeFromWater</code> &mdash; Find.CurrentMap &rarr; parms.target</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ========================= GAP CATEGORY 1 ========================= -->
+<h2>1. Visual Rand Consuming Global State in Tick Code <span class="tag tag-unpatched">UNPATCHED</span> <span class="tag tag-risk-high">HIGH RISK</span></h2>
+
+<p>
+  Zetrith patches <code>MoteMaker.MakeStaticMote</code> for deterministic mote spawning. But several systems
+  call <code>Rand</code> directly in tick code for visual effects <strong>without going through MoteMaker</strong>.
+  These consume global Rand state and can cause desync if any condition makes one client skip the call.
+</p>
+
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">Plant.TickLong &mdash; Leaf Drop Motes</span>
+    <span class="tag tag-risk-high">HIGH</span>
+  </div>
+  <p class="gap-desc">
+    Plants with <code>dropLeaves=true</code> call <code>Rand.InsideUnitCircleVec3</code>, <code>Rand.Value</code>,
+    and <code>Rand.Range</code> for leaf particle positions/scales in <code>TickLong()</code>. These are
+    <strong>not wrapped in PushState</strong> and <strong>not routed through MoteMaker</strong>.
+    With many trees, this is a significant Rand consumer (~3 calls per tree per TickLong).
+  </p>
+  <p class="gap-impact"><strong>Impact:</strong> If a plant exists on one client but not the other (e.g., destroyed by fire on one side), the Rand sequence diverges permanently.</p>
+  <p class="gap-fix"><strong>Fix:</strong> Wrap leaf mote code in <code>Rand.PushState(plant.thingIDNumber)</code> / <code>PopState()</code>.</p>
+  <span class="file-ref">RimWorld/Plant.cs (TickLong, dropLeaves section)</span>
+</div>
+
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">MentalState_BabyCry &mdash; Tear Visuals in MentalStateTick</span>
+    <span class="tag tag-risk-high">HIGH</span>
+  </div>
+  <p class="gap-desc">
+    Baby crying uses 4&ndash;6 Rand calls per tear cycle (25&ndash;40 ticks): <code>randAngle.RandomInRange</code>,
+    <code>randScale.RandomInRange</code>, <code>TicksBetweenTears.RandomInRange</code>,
+    <code>Rand.Value &times; 180</code> for mote rotation. All in <code>MentalStateTick()</code> &mdash;
+    <strong>gameplay tick, not draw code</strong>.
+  </p>
+  <p class="gap-impact"><strong>Impact:</strong> Multiple babies = dozens of unprotected Rand calls per tick cycle. If one client has a different baby count or mental state, permanent Rand drift.</p>
+  <p class="gap-fix"><strong>Fix:</strong> PushState(pawn.thingIDNumber) around tear-visual code in MentalStateTick.</p>
+  <span class="file-ref">Verse.AI/MentalState_BabyCry.cs:34-56</span>
+</div>
+
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">SnowGrid &mdash; Mesh Dirty Throttle</span>
+    <span class="tag tag-risk-med">MEDIUM</span>
+  </div>
+  <p class="gap-desc">
+    <code>CheckVisualOrPathCostChange</code> uses <code>Rand.Value &lt; 0.0125f</code> to throttle mesh updates
+    on small depth changes (&lt;0.15). This is a rendering optimization that consumes global Rand.
+    During snowfall, hundreds of cells trigger this per tick.
+  </p>
+  <p class="gap-impact"><strong>Impact:</strong> Variable Rand calls based on snow depth changes. If snow state diverges slightly &rarr; different call count &rarr; cascading desync.</p>
+  <p class="gap-fix"><strong>Fix:</strong> Replace <code>Rand.Value</code> with <code>Rand.ValueAsync(cellIndex)</code> or use cell hash modulo.</p>
+  <span class="file-ref">Verse/SnowGrid.cs</span>
+</div>
+
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">Fire.SpawnSmokeParticles &mdash; Smoke Position Rand</span>
+    <span class="tag tag-risk-med">MEDIUM</span>
+  </div>
+  <p class="gap-desc">
+    Fire tick calls <code>SpawnSmokeParticles</code> which uses 1&ndash;2 Rand calls for smoke positions.
+    Combined with <code>DoComplexCalcs</code> (5+ calls/150 ticks) and <code>TrySpread</code> (4 calls), a single fire
+    consumes ~8 Rand calls per 150 ticks. 50 fires = 400+ unprotected Rand calls.
+  </p>
+  <p class="gap-impact"><strong>Impact:</strong> If fire spreads differently on one client (due to prior state divergence), the Rand consumption differs enormously.</p>
+  <p class="gap-fix"><strong>Fix:</strong> PushState(fire.thingIDNumber) around smoke particle code. TrySpread and DoComplexCalcs must remain global (they affect simulation).</p>
+  <span class="file-ref">Verse/Fire.cs</span>
+</div>
+
+<!-- ========================= GAP CATEGORY 2 ========================= -->
+<h2>2. Constructor Rand Before Lord PushState <span class="tag tag-unpatched">UNPATCHED</span> <span class="tag tag-risk-high">HIGH RISK</span></h2>
+
+<p>
+  Zetrith's async system seeds Lord-creation via <code>Lord.SetJob</code> with <code>PushState(loadID * 193)</code>.
+  But some LordJob <strong>constructors</strong> consume Rand <em>before</em> the Lord is created &mdash;
+  meaning those calls hit the <strong>global unprotected Rand state</strong>.
+</p>
+
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">LordJob_Joinable_Party &mdash; Duration in Constructor</span>
+    <span class="tag tag-risk-high">HIGH</span>
+  </div>
+  <p class="gap-desc">
+    <code>Rand.RangeInclusive(5000, 15000)</code> is called in the <strong>constructor</strong> to set party duration.
+    This happens <em>before</em> Lord.SetJob's PushState. If two clients create the party at different ticks,
+    the Rand call happens at different positions in the global sequence.
+  </p>
+  <p class="gap-impact"><strong>Impact:</strong> Desync if party creation timing differs. The constructor also sets spot and organizer.</p>
+  <p class="gap-fix"><strong>Fix:</strong> Harmony prefix on constructor to PushState with a deterministic seed (e.g., initiator pawn ID).</p>
+  <span class="file-ref">Verse.AI.Group/LordJob_Joinable_Party.cs (constructor)</span>
+</div>
+
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">LordToil_Breaching &mdash; preferMelee in UpdateAllDuties</span>
+    <span class="tag tag-risk-high">HIGH</span>
+  </div>
+  <p class="gap-desc">
+    <code>Rand.Chance(0.5f)</code> in <code>UpdateAllDuties</code> when <code>breachDest</code> is initialized.
+    This runs in the <strong>normal tick flow</strong> (LordToilTick &rarr; UpdateAllDuties).
+    If <code>breachDest</code> becomes invalid at different ticks on different clients &rarr; the Rand call
+    happens at different simulation positions.
+  </p>
+  <p class="gap-impact"><strong>Impact:</strong> Different melee preference &rarr; different duty assignments &rarr; different pawn behavior &rarr; cascading desync.</p>
+  <p class="gap-fix"><strong>Fix:</strong> Seed with Lord.loadID before the Rand.Chance call.</p>
+  <span class="file-ref">Verse.AI.Group/LordToil_Breaching.cs</span>
+</div>
+
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">LordToil_Sappers &mdash; EscortRadius per Pawn</span>
+    <span class="tag tag-risk-high">HIGH</span>
+  </div>
+  <p class="gap-desc">
+    <code>EscortRadiusRanged/Melee.RandomInRange</code> is called in <code>UpdateAllDuties</code>
+    for <strong>every escort pawn</strong>. This happens at <em>every</em> duty reassignment.
+    If a pawn dies on one client triggering <code>Notify_ReachedDutyLocation</code> &rarr; duty reset &rarr;
+    different number of Rand calls.
+  </p>
+  <p class="gap-impact"><strong>Impact:</strong> Variable Rand count per client based on pawn survival. Escort radius affects pathfinding targets.</p>
+  <p class="gap-fix"><strong>Fix:</strong> Use <code>Rand.RangeSeeded(min, max, pawn.thingIDNumber ^ lord.loadID)</code>.</p>
+  <span class="file-ref">Verse.AI.Group/LordToil_Sappers.cs</span>
+</div>
+
+<!-- ========================= GAP CATEGORY 3 ========================= -->
+<h2>3. Float-Point Accumulation Drift <span class="tag tag-unpatched">UNPATCHED</span> <span class="tag tag-risk-med">MEDIUM RISK</span></h2>
+
+<p>
+  RimWorld uses <code>float</code> extensively for temperature, work progress, and stat calculations.
+  Zetrith doesn't address potential IEEE 754 rounding differences between clients.
+  While typically negligible on identical hardware, these can accumulate over long play sessions.
+</p>
+
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">Room Temperature Equalization</span>
+    <span class="tag tag-risk-med">MEDIUM</span>
+  </div>
+  <p class="gap-desc">
+    <code>RoomTempTracker</code> accumulates temperature from 4 equalization sources every tick.
+    Each is a float multiplication + addition. Over thousands of ticks, tiny precision differences compound.
+    Temperature affects: food rot rate, hypothermia/heatstroke, plant growth, animal behavior.
+  </p>
+  <p class="gap-impact"><strong>Impact:</strong> Slow drift over time. Temperature difference &rarr; different rot timing &rarr; different food availability &rarr; different pawn decisions &rarr; eventual desync.</p>
+  <p class="gap-fix"><strong>Fix:</strong> Periodic temperature snap-sync (quantize to nearest 0.01 every N ticks) or server-authoritative temperature.</p>
+  <span class="file-ref">Verse/RoomTempTracker.cs</span>
+</div>
+
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">Recipe Work Progress</span>
+    <span class="tag tag-risk-med">MEDIUM</span>
+  </div>
+  <p class="gap-desc">
+    <code>Toils_Recipe.DoRecipeWork</code>: <code>workLeft -= workSpeed &times; delta</code> uses float subtraction every tick.
+    Different FPU behavior could cause one client to finish a recipe 1 tick earlier, triggering
+    <code>CompleteRecipeWork</code> (which consumes Rand for quality generation) at a different time.
+  </p>
+  <p class="gap-impact"><strong>Impact:</strong> Quality generation Rand call at different tick = permanent Rand state divergence.</p>
+  <p class="gap-fix"><strong>Fix:</strong> Use fixed-point integer arithmetic for work progress, or snap workLeft periodically.</p>
+  <span class="file-ref">Verse/Toils_Recipe.cs</span>
+</div>
+
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">Stat Capacity Factor Lerp</span>
+    <span class="tag tag-risk-low">LOW</span>
+  </div>
+  <p class="gap-desc">
+    <code>StatWorker</code> uses <code>Mathf.Lerp(num, num * factor, weight)</code> for capacity factors.
+    The result depends on evaluation order and float precision. Different Mono/.NET runtimes
+    could produce slightly different results.
+  </p>
+  <p class="gap-impact"><strong>Impact:</strong> Unlikely with identical game versions, but possible with mixed Linux/Windows clients.</p>
+  <span class="file-ref">RimWorld/StatWorker.cs:384-391</span>
+</div>
+
+<!-- ========================= GAP CATEGORY 4 ========================= -->
+<h2>4. Unprotected Global Rand in Tick-Triggered Code <span class="tag tag-unpatched">UNPATCHED</span> <span class="tag tag-risk-high">HIGH RISK</span></h2>
+
+<p>
+  These are <code>Rand</code> calls inside tick-driven code that lack <code>PushState</code> isolation
+  and whose call count depends on variable game state. If game state diverges even slightly,
+  the number of Rand calls differs &rarr; permanent desync.
+</p>
+
+<table>
+  <tr><th>Location</th><th>Rand Call</th><th>Condition</th><th>Risk</th></tr>
+  <tr>
+    <td><code>Pawn_FilthTracker</code></td>
+    <td>3&ndash;4 calls per cell change</td>
+    <td>Every pawn movement</td>
+    <td><span class="tag tag-risk-high">HIGH</span></td>
+  </tr>
+  <tr>
+    <td><code>ConstructFinishFrame</code></td>
+    <td><code>Rand.Value &lt; failChance</code></td>
+    <td>Every build tick, no PushState</td>
+    <td><span class="tag tag-risk-high">HIGH</span></td>
+  </tr>
+  <tr>
+    <td><code>GenLeaving.InRandomOrder</code></td>
+    <td>Fisher-Yates shuffle</td>
+    <td>Kill/Deconstruct, outside PushState</td>
+    <td><span class="tag tag-risk-high">HIGH</span></td>
+  </tr>
+  <tr>
+    <td><code>GenLeaving.RoundRandom</code></td>
+    <td>1 Rand per material type</td>
+    <td>Terrain deconstruct, no PushState</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+  </tr>
+  <tr>
+    <td><code>PowerNet.RandomElement</code></td>
+    <td>1 Rand for restart/shutdown device</td>
+    <td>PowerNet deficit/surplus tick</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+  </tr>
+  <tr>
+    <td><code>PowerNet.Shuffle</code></td>
+    <td>Fisher-Yates on batteriesShuffled</td>
+    <td>DistributeEnergyAmongBatteries</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+  </tr>
+  <tr>
+    <td><code>Pawn_InteractionsTracker</code></td>
+    <td>6+ Rand calls per interaction</td>
+    <td>MTB trigger + Shuffle + WeightedRandom</td>
+    <td><span class="tag tag-risk-high">HIGH</span></td>
+  </tr>
+  <tr>
+    <td><code>InspirationHandler</code></td>
+    <td>MTB + RandomElementByWeight</td>
+    <td>Every 100 ticks per pawn, mood-gated</td>
+    <td><span class="tag tag-risk-high">HIGH</span></td>
+  </tr>
+  <tr>
+    <td><code>Gene.TickInterval</code></td>
+    <td><code>Rand.MTBEventOccurs</code></td>
+    <td>Every 60 ticks per gene with mentalBreakMtbDays</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+  </tr>
+  <tr>
+    <td><code>Gene_Clotting</code></td>
+    <td><code>TendingQualityRange.RandomInRange</code></td>
+    <td>Per bleeding wound, every 360 ticks</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+  </tr>
+  <tr>
+    <td><code>Gene_Healing</code></td>
+    <td><code>HealingIntervalTicksRange.RandomInRange</code></td>
+    <td>Timer reset after heal, no PushState</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+  </tr>
+  <tr>
+    <td><code>Pawn_LearningTracker</code></td>
+    <td>Rand.Range + RandomElementByWeight</td>
+    <td>Desire rotation per child pawn</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+  </tr>
+  <tr>
+    <td><code>CompBreakdownable</code></td>
+    <td><code>Rand.MTBEventOccurs</code></td>
+    <td>Every 1041 ticks per breakdownable building</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+  </tr>
+</table>
+
+<div class="box box-info">
+  <div class="label">Why These Matter Despite Lockstep</div>
+  Zetrith's lockstep ensures all clients run the same ticks in the same order.
+  These Rand calls are safe <strong>as long as game state is perfectly identical</strong>.
+  The risk comes from <strong>any prior divergence</strong> (float drift, missed sync, mod difference)
+  that causes one client to take a different code path &mdash; changing the <em>number</em> of Rand calls
+  and permanently offsetting the global RNG state.
+</div>
+
+<!-- ========================= GAP CATEGORY 5 ========================= -->
+<h2>5. Static Mutable State Not Synchronized <span class="tag tag-unpatched">UNPATCHED</span> <span class="tag tag-risk-med">MEDIUM RISK</span></h2>
+
+<p>
+  These global static fields are modified during gameplay and could diverge between clients
+  if any non-deterministic code path modifies them.
+</p>
+
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">QuestGen Static State</span>
+    <span class="tag tag-risk-high">HIGH</span>
+  </div>
+  <p class="gap-desc">
+    <code>static Quest quest</code>, <code>static Slate slate</code>, <code>static bool working</code> &mdash;
+    all quest generation uses the same global state. The <code>working</code> flag prevents re-entrancy
+    but is <strong>not thread-safe</strong>. If quest generation is triggered from different code paths on different
+    clients, the static state could be in different states.
+  </p>
+  <span class="file-ref">RimWorld.QuestGen/QuestGen.cs</span>
+</div>
+
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">Thing.allowDestroyNonDestroyable</span>
+    <span class="tag tag-risk-med">MEDIUM</span>
+  </div>
+  <p class="gap-desc">
+    <code>static bool</code> set temporarily by QuestPart cleanup code. If two QuestPart cleanup operations
+    run in different order on different clients, this flag could be in different states when
+    <code>Destroy()</code> is called.
+  </p>
+  <span class="file-ref">Verse/Thing.cs</span>
+</div>
+
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">Static tmpCollections Pattern</span>
+    <span class="tag tag-risk-low">LOW</span>
+  </div>
+  <p class="gap-desc">
+    Dozens of classes use <code>static List&lt;T&gt; tmpXxx</code> that are <code>Clear()</code>'d and reused.
+    Examples: <code>AutoSlaughterManager</code> (6 lists), <code>CellFinder</code> (many lists),
+    <code>JobGiver_BingeDrug.tmpChemicalNeeds</code>. Single-threaded in vanilla, but if Zetrith's
+    async map ticking processes two maps simultaneously, these could race.
+  </p>
+  <span class="file-ref">Various (AutoSlaughterManager.cs, CellFinder.cs, etc.)</span>
+</div>
+
+<!-- ========================= GAP CATEGORY 6 ========================= -->
+<h2>6. Incident Worker Rand Pipelines <span class="tag tag-partial">PARTIALLY PATCHED</span> <span class="tag tag-risk-high">HIGH RISK</span></h2>
+
+<p>
+  Zetrith syncs Storyteller settings and patches the tick system. But the <strong>incident execution pipelines</strong>
+  themselves are massive Rand consumers that depend on perfectly synchronized state.
+  If state diverges even slightly before an incident fires, the Rand consumption differs catastrophically.
+</p>
+
+<div class="source-card">
+  <h4>PawnGenerator &mdash; The Nuclear Option <span class="tag tag-risk-high">NUCLEAR</span></h4>
+  <p class="desc">
+    A single <code>PawnGenerator.GeneratePawn()</code> call can consume <strong>150&ndash;48,000 Rand calls</strong>
+    due to 120-retry loops, 80-retry apparel generation, 500-iteration trait fitting, and recursive
+    relation spawning. Zetrith does NOT wrap PawnGenerator in PushState.
+  </p>
+  <p class="desc">
+    <strong>Why it matters:</strong> Raids, traders, visitors, quests &mdash; all trigger PawnGenerator.
+    A single retry-count difference between clients = thousands of Rand calls offset = guaranteed permanent desync.
+  </p>
+  <p class="desc" style="color:var(--cyan);">
+    <strong>Zetrith's implicit defense:</strong> Lockstep ensures the same incidents fire at the same tick.
+    But if <em>any</em> prior state divergence causes different <code>PawnGenerationRequest</code> constraints
+    (different faction, different world pawn count for redress chance), the retry count differs.
+  </p>
+  <span class="file-ref">Verse/PawnGenerator.cs:681-724</span>
+  <span class="file-ref">RimWorld/PawnApparelGenerator.cs:686-785</span>
+</div>
+
+<table>
+  <tr><th>Incident</th><th>Rand Pipeline</th><th>Variable Dependency</th></tr>
+  <tr>
+    <td><code>IncidentWorker_RaidEnemy</code></td>
+    <td>Faction + Strategy + ArriveMode + PawnGen = 100&ndash;500+ calls</td>
+    <td>Faction weights, map threat level</td>
+  </tr>
+  <tr>
+    <td><code>IncidentWorker_VisitorGroup</code></td>
+    <td>75% chance: Trader conversion = 20+ extra calls</td>
+    <td>Rand.Value branch = binary divergence</td>
+  </tr>
+  <tr>
+    <td><code>IncidentWorker_Disease</code></td>
+    <td><code>Rand.Chance</code> per potential victim</td>
+    <td>Pawn list size, immunity hediffs</td>
+  </tr>
+  <tr>
+    <td><code>IncidentWorker_MechCluster</code></td>
+    <td>100-retry placement + SpawnCluster</td>
+    <td>Map terrain/buildings state</td>
+  </tr>
+  <tr>
+    <td><code>IncidentWorker_CrashedShipPart</code></td>
+    <td>200-retry placement + PawnGen</td>
+    <td>Map terrain, roof state</td>
+  </tr>
+  <tr>
+    <td><code>IncidentWorker_CropBlight</code></td>
+    <td><code>Rand.Chance</code> per plant in radius</td>
+    <td>Plant count at target area</td>
+  </tr>
+  <tr>
+    <td><code>IncidentWorker_HerdMigration</code></td>
+    <td>Pollution Rand fork + biome selection</td>
+    <td>Map pollution level</td>
+  </tr>
+</table>
+
+<!-- ========================= GAP CATEGORY 7 ========================= -->
+<h2>7. Missing SyncFields for Newer Systems <span class="tag tag-unpatched">UNPATCHED</span> <span class="tag tag-risk-med">MEDIUM RISK</span></h2>
+
+<p>
+  Zetrith's SyncFields cover most vanilla UI interactions. However, some newer systems
+  (particularly from Anomaly DLC and late 1.5+ updates) may have gizmo-accessible fields
+  that aren't synced. These are UI controls that modify game state without going through commands.
+</p>
+
+<table>
+  <tr><th>System</th><th>Potentially Missing Fields</th><th>Risk</th></tr>
+  <tr>
+    <td><code>CompBandNode</code></td>
+    <td>Band node tuning target settings</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+  </tr>
+  <tr>
+    <td><code>CompDissolution</code></td>
+    <td>Dissolution settings (debug gizmos)</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+  </tr>
+  <tr>
+    <td><code>CompPollutionPump</code></td>
+    <td>Pollution pump toggle settings</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+  </tr>
+  <tr>
+    <td><code>Gene_Deathrest</code></td>
+    <td>Deathrest capacity target (debug)</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+  </tr>
+  <tr>
+    <td><code>CompAtomizer</code></td>
+    <td>Atomizer control gizmos</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+  </tr>
+  <tr>
+    <td><code>CompFleshmassHeart</code></td>
+    <td>Growth cycle controls</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+  </tr>
+  <tr>
+    <td>Precept work/role settings</td>
+    <td>Ideology precept configuration during play</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+  </tr>
+</table>
+
+<div class="box box-warn">
+  <div class="label">Note on Debug-Only Fields</div>
+  Some of these fields are marked <code>.SetDebugOnly()</code> in Zetrith's SyncDelegates.
+  They are synced in debug mode but may not cover all code paths in release mode.
+  Fields accessible through <strong>normal gameplay gizmos</strong> (not dev mode) are the priority.
+</div>
+
+<!-- ========================= PRIORITY MAP ========================= -->
+<h2>Priority Fix Map</h2>
+
+<p>If building an MP mod, address these gaps in this order:</p>
+
+<div class="flow">
+  <span class="flow-step" style="border-color:var(--red);">1. Constructor Rand</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step" style="border-color:var(--red);">2. Visual Rand in Ticks</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step" style="border-color:var(--yellow);">3. Static State Sync</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step" style="border-color:var(--yellow);">4. Float Drift</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step" style="border-color:var(--blue);">5. New SyncFields</span>
+</div>
+
+<table>
+  <tr><th>Priority</th><th>Gap</th><th>Effort</th><th>Desync Probability</th></tr>
+  <tr>
+    <td style="color:var(--red); font-weight:700;">P0</td>
+    <td>LordJob constructor Rand (Party, Breaching, Sappers)</td>
+    <td>Low &mdash; 3 Harmony prefixes</td>
+    <td>Guaranteed on diverged state</td>
+  </tr>
+  <tr>
+    <td style="color:var(--red); font-weight:700;">P0</td>
+    <td>Plant leaf motes, BabyCry tears, Fire smoke</td>
+    <td>Low &mdash; PushState/PopState wrappers</td>
+    <td>High with many plants/babies/fires</td>
+  </tr>
+  <tr>
+    <td style="color:var(--red); font-weight:700;">P0</td>
+    <td>SnowGrid mesh dirty Rand</td>
+    <td>Low &mdash; Replace with hash-based throttle</td>
+    <td>High during snowfall</td>
+  </tr>
+  <tr>
+    <td style="color:var(--yellow); font-weight:700;">P1</td>
+    <td>Pawn_FilthTracker (3&ndash;4 Rand per cell)</td>
+    <td>Medium &mdash; PushState per pawn</td>
+    <td>Medium, depends on prior drift</td>
+  </tr>
+  <tr>
+    <td style="color:var(--yellow); font-weight:700;">P1</td>
+    <td>ConstructFinishFrame fail chance</td>
+    <td>Low &mdash; PushState(frame.thingIDNumber)</td>
+    <td>Medium during active building</td>
+  </tr>
+  <tr>
+    <td style="color:var(--yellow); font-weight:700;">P1</td>
+    <td>QuestGen static state protection</td>
+    <td>Medium &mdash; Lock pattern or PushState</td>
+    <td>Low but catastrophic if hit</td>
+  </tr>
+  <tr>
+    <td style="color:var(--yellow); font-weight:700;">P1</td>
+    <td>Temperature drift quantization</td>
+    <td>Medium &mdash; Periodic snap-sync</td>
+    <td>Low short-term, high long-term</td>
+  </tr>
+  <tr>
+    <td style="color:var(--blue); font-weight:700;">P2</td>
+    <td>PowerNet shuffle/RandomElement</td>
+    <td>Low &mdash; PushState per PowerNet</td>
+    <td>Low (rare conditions)</td>
+  </tr>
+  <tr>
+    <td style="color:var(--blue); font-weight:700;">P2</td>
+    <td>Missing SyncFields for new DLC gizmos</td>
+    <td>Medium &mdash; Add to SyncFields.Init()</td>
+    <td>Medium when players interact with new controls</td>
+  </tr>
+  <tr>
+    <td style="color:var(--blue); font-weight:700;">P2</td>
+    <td>GenLeaving InRandomOrder / RoundRandom</td>
+    <td>Low &mdash; PushState wrapper</td>
+    <td>Low (triggered by destruction only)</td>
+  </tr>
+</table>
+
+<!-- ========================= METHODOLOGY ========================= -->
+<h2>Methodology</h2>
+
+<div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1.2rem; margin:1rem 0;">
+  <p style="font-size:0.88rem; color:var(--text-dim); margin-bottom:0.8rem;">
+    This analysis cross-referenced three data sources:
+  </p>
+  <table style="font-size:0.85rem;">
+    <tr><th>Source</th><th>Scope</th><th>Files</th></tr>
+    <tr>
+      <td>Zetrith MP Mod Source</td>
+      <td>SyncFields.cs, SyncMethods.cs, SyncDelegates.cs, 32 Patch files</td>
+      <td>~40 C# files</td>
+    </tr>
+    <tr>
+      <td>RimWorld Internals Findings</td>
+      <td>200+ RL-entries in rimlink-relevant.md</td>
+      <td>200+ decompiled files analyzed</td>
+    </tr>
+    <tr>
+      <td>Decompiled RimWorld Source</td>
+      <td>Verse + RimWorld namespaces</td>
+      <td>~8,650 total files</td>
+    </tr>
+  </table>
+  <p style="font-size:0.85rem; color:var(--text-dim); margin-top:0.8rem;">
+    <strong>Approach:</strong> For each RL-finding, verified whether Zetrith's SyncFields, SyncMethods,
+    SyncDelegates, or Harmony patches address the specific field or code path. Gaps were categorized
+    by risk level based on: frequency of occurrence, Rand call count, and dependency on variable state.
+  </p>
+</div>
+
+<div class="footer">
+  <span>Based on decompiled RimWorld source + Zetrith MP mod source analysis</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+  <span>2026-03-20</span>
+</div>
+
+</body>
+</html>
