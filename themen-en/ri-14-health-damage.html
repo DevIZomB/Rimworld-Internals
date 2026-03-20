@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Health, Damage &amp; Injury — RW Internals</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="back-link" href="../001-room-temperature-equalization-en.html">&larr; Back to query</a>
+
+<div class="header">
+  <div class="meta">
+    <span>Namespace: Verse</span>
+  </div>
+  <h1>Health, Damage &amp; Injury</h1>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#1</span>
+  <span class="entry-title">Pawn_HealthTracker</span>
+  <span class="entry-file">Verse/Pawn_HealthTracker.cs:1-~1200</span>
+  <p class="entry-desc">Health manager for each pawn. Manages state (Mobile/Down/Dead), AddHediff pipeline and CheckForStateChange after each damage or hediff update.</p>
+  <p class="entry-modding">PreApplyDamage Harmony prefix for damage reduction.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#2</span>
+  <span class="entry-title">DamageWorker</span>
+  <span class="entry-file">Verse/DamageWorker.cs:1-413</span>
+  <p class="entry-desc">Base damage calculation for buildings and plants. Contains the explosion system with radius calculation and cell iteration.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#3</span>
+  <span class="entry-title">DamageWorker_AddInjury</span>
+  <span class="entry-file">Verse/DamageWorker_AddInjury.cs:1-383</span>
+  <p class="entry-desc">Pawn-specific damage: armor penetration, damage propagation through body parts, instant-kill protection. <span class="tag tag-mp">MP-Critical</span> &mdash; Rand in instant-kill protection.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#4</span>
+  <span class="entry-title">HealthUtility</span>
+  <span class="entry-file">Verse/HealthUtility.cs:1-879</span>
+  <p class="entry-desc">Static helper functions: GetHediffDefFromDamage, FixWorstHealthCondition (DevMode heal), DamageUntilDowned (for arrest/down scenarios).</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#5</span>
+  <span class="entry-title">HealthTuning</span>
+  <span class="entry-file">Verse/HealthTuning.cs:1-150</span>
+  <p class="entry-desc">Central constants: HealPerDay = 8 (Tend) + 4 (Natural) + 8 (ImmunityGainSpeed), PainShock threshold = 0.8, Permanent chance = 2%.</p>
+</div>
+
+<div class="footer">
+  <span>RimWorld Internals &mdash; Knowledge Sync</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+</div>
+
+</body>
+</html>

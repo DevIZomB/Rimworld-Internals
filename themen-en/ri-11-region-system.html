@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Region System — RW Internals</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="back-link" href="../001-room-temperature-equalization-en.html">&larr; Back to query</a>
+
+<div class="header">
+  <div class="meta">
+    <span>Namespace: Verse</span>
+  </div>
+  <h1>Region System</h1>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#1</span>
+  <span class="entry-title">Region</span>
+  <span class="entry-file">Verse/Region.cs:1-610</span>
+  <p class="entry-desc">12&times;12 building block of the pathfinding system. Contains closedIndex[8] for parallel BFS traversals, ListerThings for fast thing queries, and danger cache for pawn AI.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#2</span>
+  <span class="entry-title">RegionGrid</span>
+  <span class="entry-file">Verse/RegionGrid.cs:1-253</span>
+  <p class="entry-desc">Region[] array over the entire map. Auto-rebuild on terrain/building changes. UpdateClean processes max 16 dirty regions per frame.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#3</span>
+  <span class="entry-title">RegionTraverser</span>
+  <span class="entry-file">Verse/RegionTraverser.cs:1-242</span>
+  <p class="entry-desc">BFS traversal with worker pool (8 workers). Uses closedIndex trick: instead of a visited HashSet, a global counter per worker is incremented &mdash; O(1) instead of O(n) reset.</p>
+  <p class="entry-modding">Use BreadthFirstTraverse for custom reachability queries.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#4</span>
+  <span class="entry-title">District</span>
+  <span class="entry-file">Verse/District.cs:1-338</span>
+  <p class="entry-desc">Grouping of multiple regions into a logical area. Room membership, OpenRoofCountStopAt with lazy evaluation for performance.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#5</span>
+  <span class="entry-title">RegionType</span>
+  <span class="entry-file">Verse/RegionType.cs:1-16</span>
+  <p class="entry-desc">Flags enum with four types: Normal (walkable), Portal (doors), Fence (fences, blocks animals), Impassable (walls/rocks).</p>
+</div>
+
+<div class="footer">
+  <span>RimWorld Internals &mdash; Knowledge Sync</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+</div>
+
+</body>
+</html>

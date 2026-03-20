@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RW Internals — Room Temperature Equalization</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232730;
+    --border: #2e3340;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #8b5cf6;
+    --accent2: #a78bfa;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --orange: #f97316;
+    --cyan: #06b6d4;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    line-height: 1.7;
+    padding: 2rem;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  .header {
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  .header .meta {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+  }
+  .header .meta span {
+    background: var(--surface2);
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+  .header .meta .topic {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .header h1 {
+    font-size: 1.8rem;
+    color: var(--accent2);
+    margin-bottom: 0.3rem;
+  }
+  .header .question {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  h2 { color: var(--accent2); font-size: 1.3rem; margin: 2rem 0 1rem 0; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+  h3 { color: var(--cyan); font-size: 1.05rem; margin: 1.2rem 0 0.5rem 0; }
+  p { margin-bottom: 0.8rem; }
+
+  .file-ref {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 4px;
+    padding: 0.15rem 0.5rem; font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 0.85rem; color: var(--cyan); text-decoration: none; cursor: default;
+  }
+  .file-ref::before { content: '📄'; font-size: 0.75rem; }
+
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.92rem; }
+  th { background: var(--surface2); color: var(--accent2); text-align: left; padding: 0.6rem 0.8rem; border-bottom: 2px solid var(--accent); }
+  td { padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: var(--surface); }
+  td code { background: var(--surface2); padding: 0.1rem 0.4rem; border-radius: 3px; font-family: 'Cascadia Code', monospace; font-size: 0.85rem; color: var(--orange); }
+
+  .box { border-radius: 8px; padding: 1rem 1.2rem; margin: 1rem 0; border-left: 4px solid; }
+  .box-info { background: rgba(59, 130, 246, 0.08); border-color: var(--blue); }
+  .box-warn { background: rgba(234, 179, 8, 0.08); border-color: var(--yellow); }
+  .box-danger { background: rgba(239, 68, 68, 0.08); border-color: var(--red); }
+  .box-success { background: rgba(34, 197, 94, 0.08); border-color: var(--green); }
+  .box .label { font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.4rem; }
+  .box-info .label { color: var(--blue); }
+  .box-warn .label { color: var(--yellow); }
+  .box-danger .label { color: var(--red); }
+  .box-success .label { color: var(--green); }
+
+  .flow { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; padding: 1rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); }
+  .flow-step { background: var(--surface2); border: 1px solid var(--accent); border-radius: 6px; padding: 0.4rem 0.8rem; font-size: 0.88rem; color: var(--accent2); white-space: nowrap; }
+  .flow-arrow { color: var(--text-dim); font-size: 1.2rem; }
+
+  .source-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin: 0.8rem 0; }
+  .source-card h4 { color: var(--orange); font-size: 0.95rem; margin-bottom: 0.4rem; }
+  .source-card .rate { font-family: 'Cascadia Code', monospace; color: var(--green); font-weight: 600; }
+  .source-card .desc { color: var(--text-dim); font-size: 0.9rem; }
+
+  .tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.78rem; font-weight: 600; }
+  .tag-mp { background: rgba(239,68,68,0.2); color: var(--red); }
+  .tag-const { background: rgba(139,92,246,0.2); color: var(--accent2); }
+
+  .footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 0.82rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; }
+
+  .connections { display: grid; grid-template-columns: 1fr; gap: 0.6rem; margin: 1rem 0; }
+  .conn { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem 1rem; font-size: 0.88rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; transition: border-color 0.2s; }
+  .conn:hover { border-color: var(--accent); }
+  .conn-left { display: flex; flex-direction: column; gap: 0.2rem; }
+  .conn-title { color: var(--text); font-weight: 600; }
+  .conn-why { color: var(--text-dim); font-size: 0.82rem; }
+  .conn-link { color: var(--accent2); text-decoration: none; font-size: 0.8rem; white-space: nowrap; padding: 0.25rem 0.6rem; border: 1px solid var(--accent); border-radius: 4px; transition: background 0.2s; }
+  .conn-link:hover { background: rgba(139,92,246,0.15); }
+
+  .confidence { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0; }
+  .confidence-bar { flex: 1; height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; max-width: 200px; }
+  .confidence-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--yellow), var(--green)); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="meta">
+    <span class="topic">Temperature</span>
+    <span>Query #001</span>
+    <span>2026-03-19</span>
+    <span>Namespace: Verse</span>
+  </div>
+  <h1>Room Temperature Equalization System</h1>
+  <p class="question">"How does the room temperature equalization system work internally?"</p>
+</div>
+
+<!-- Confidence -->
+<div class="confidence">
+  <span style="font-size:0.85rem; color:var(--text-dim);">Answer confidence:</span>
+  <div class="confidence-bar"><div class="confidence-fill" style="width:75%"></div></div>
+  <span style="font-size:0.85rem; color:var(--yellow); font-weight:600;">75%</span>
+  <span style="font-size:0.78rem; color:var(--text-dim);">— Architecture complete, formulas partial</span>
+</div>
+
+<!-- Overview -->
+<h2>Overview</h2>
+<p>
+  Every <strong>120 ticks</strong> (~2 seconds game time),
+  <span class="file-ref">Verse/MapTemperature.cs</span> calculates the temperature for every room on the map.
+  The actual computation is delegated to <span class="file-ref">Verse/RoomTempTracker.cs</span>,
+  which adds up 4 equalization sources per room.
+</p>
+
+<div class="box box-info">
+  <div class="label">Core Principle</div>
+  Temperature always flows from hot to cold. The rate depends on the <strong>source</strong>
+  (wall, roof, open) and is logarithmically dampened by <code>TempDiffAdjusted</code> at extreme differences.
+</div>
+
+<!-- Flow -->
+<h2>Flow Per Tick</h2>
+<div class="flow">
+  <span class="flow-step">MapTemperatureTick()</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">foreach Room</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">RoomTempTracker.EqualizeTemperature()</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Add 4 sources</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Room.Temperature +=</span>
+</div>
+
+<p>On room rebuild, <code>equalizeCells</code> are collected and <strong>Shuffle()</strong> is called:</p>
+<div class="box box-danger">
+  <div class="label">MP-Critical</div>
+  <code>equalizeCells.Shuffle()</code> consumes <strong>Rand</strong> calls.
+  If rooms rebuild at different times on different clients
+  → different Rand sequence → <strong>Desync</strong>.
+  <br><br>
+  <span class="file-ref">Verse/RoomTempTracker.cs:174</span>
+</div>
+
+<!-- 4 Sources -->
+<h2>The 4 Equalization Sources</h2>
+
+<div class="source-card">
+  <h4>1. Wall Equalization <span class="tag tag-const">Constant</span></h4>
+  <p class="desc">Heat flows through walls to neighboring rooms. Per wall cell with a neighbor room.</p>
+  <p>Rate: <span class="rate">0.00017f</span> per wall cell per interval</p>
+  <p class="desc"><strong>Note:</strong> Identical for ALL wall materials — wood insulates like granite!</p>
+  <span class="file-ref">Verse/RoomTempTracker.cs:215-252</span>
+</div>
+
+<div class="source-card">
+  <h4>2. Thin Roof Equalization</h4>
+  <p class="desc">Slow equalization with outdoor temperature through thin roof.</p>
+  <p>Rate: <span class="rate">Very slow</span> — significantly less than NoRoof</p>
+</div>
+
+<div class="source-card">
+  <h4>3. No Roof / Open <span class="tag tag-const">14× Door</span></h4>
+  <p class="desc">Open cells without roof. Near-instant equalization with outdoor temperature.</p>
+  <p>Rate: <span class="rate">14× door rate</span></p>
+</div>
+
+<div class="source-card">
+  <h4>4. Deep Underground</h4>
+  <p class="desc">Mountain roof pulls temperature towards 15°C. Only acts as cooling.</p>
+  <p>Target temperature: <span class="rate">15°C</span></p>
+</div>
+
+<!-- Outdoor Threshold -->
+<h2>Outdoor Threshold</h2>
+<div class="box box-warn">
+  <div class="label">Binary Threshold</div>
+  A room uses <code>UsesOutdoorTemperature</code> when:<br>
+  • <strong>≥25%</strong> of cells have no roof, <strong>OR</strong><br>
+  • Room <code>TouchesMapEdge</code><br><br>
+  24% open = indoor with equalization. 25% = full outdoor temperature. <strong>No transition.</strong>
+</div>
+
+<!-- Constants -->
+<h2>Key Constants</h2>
+<table>
+  <tr><th>Constant</th><th>Value</th><th>Meaning</th></tr>
+  <tr><td><code>MinTemperature</code></td><td>-273.15°C</td><td>Absolute zero</td></tr>
+  <tr><td><code>MaxTemperature</code></td><td>1000°C</td><td>Temperature cap</td></tr>
+  <tr><td><code>Vent_TempEqualizeRate</code></td><td>14×</td><td>Vent building vs. door</td></tr>
+  <tr><td><code>DeepUndergroundTemperature</code></td><td>15°C</td><td>Mountain target temperature</td></tr>
+  <tr><td><code>RoomEqualizeInterval</code></td><td>120 Ticks</td><td>~2 seconds</td></tr>
+  <tr><td><code>WallEqualizeFactor</code></td><td>0.00017f</td><td>Per wall cell, all materials equal</td></tr>
+  <tr><td><code>DoorOpenTicks</code></td><td>34</td><td>Door stays open after passing</td></tr>
+</table>
+<p><span class="file-ref">Verse/TemperatureTuning.cs</span></p>
+
+<!-- PushHeat -->
+<h2>PushHeat & ControlTemp</h2>
+<p>Buildings (heater, cooler, fire) affect temperature through two APIs:</p>
+<table>
+  <tr><th>Method</th><th>Purpose</th></tr>
+  <tr>
+    <td><code>GenTemperature.PushHeat(cell, map, energy)</code></td>
+    <td>Adds heat energy to a room (fire, explosions)</td>
+  </tr>
+  <tr>
+    <td><code>GenTemperature.ControlTemperatureInRoom(cell, targetTemp, energyLimit)</code></td>
+    <td>Heater/cooler steer towards target temperature</td>
+  </tr>
+</table>
+<p><span class="file-ref">Verse/GenTemperature.cs</span></p>
+
+<div class="box box-success">
+  <div class="label">Modding Hint</div>
+  <code>ComfortableTemperatureRange</code> = pawn stat ± 10°C buffer.
+  Outside this range → Hypothermia/Heatstroke hediffs via <code>SafeTemperatureRange</code>.
+</div>
+
+<!-- Cross-connections -->
+<h2>Also Affects</h2>
+<p style="color:var(--text-dim); font-size:0.9rem; margin-bottom:1rem;">If you modify the temperature system, these systems are directly impacted:</p>
+<div class="connections">
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Health & Damage — Temperature Hediffs</span>
+      <span class="conn-why">Temperature outside SafeRange → Hypothermia / Heatstroke hediffs automatically</span>
+    </div>
+    <a class="conn-link" href="themen-en/ri-14-health-damage.html">→ Read more</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Region System — Danger Detection</span>
+      <span class="conn-why">Region.DangerFor(Pawn) checks room temperature — pawns avoid dangerous rooms</span>
+    </div>
+    <a class="conn-link" href="themen-en/ri-11-region-system.html">→ Read more</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Pawn — Comfort Temperature</span>
+      <span class="conn-why">ComfortableTemperatureRange (stat + apparel ± 10°C) determines if the pawn suffers</span>
+    </div>
+    <a class="conn-link" href="themen-en/ri-06-pawn.html">→ Read more</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Game Loop — Tick Order</span>
+      <span class="conn-why">MapTemperatureTick runs in the DoSingleTick path every 120 ticks — fixed position in the loop</span>
+    </div>
+    <a class="conn-link" href="themen-en/ri-02-tickmanager.html">→ Read more</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Thing Spawning — Room Rebuild</span>
+      <span class="conn-why">When a building spawns/despawns, it triggers a room rebuild → new equalizeCells</span>
+    </div>
+    <a class="conn-link" href="themen-en/ri-04-thing-hierarchy.html">→ Read more</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">RNG / Rand — <span class="tag tag-mp">MP-Critical</span></span>
+      <span class="conn-why">equalizeCells.Shuffle() consumes Rand on every room rebuild — desync risk</span>
+    </div>
+    <a class="conn-link" href="themen-en/ri-01-rand-rng.html">→ Read more</a>
+  </div>
+
+</div>
+
+<!-- Knowledge Status -->
+<h2>Knowledge Status of This Answer</h2>
+
+<div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1.2rem; margin:1rem 0;">
+
+  <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem;">
+    <div style="font-size:2rem; font-weight:700; color:var(--accent2);">1.54%</div>
+    <div>
+      <div style="font-size:0.95rem; color:var(--text);">142 of ~9,200 files analyzed</div>
+      <div style="font-size:0.82rem; color:var(--text-dim);">Grows with each analysis session</div>
+    </div>
+  </div>
+
+  <div style="width:100%; height:10px; background:var(--surface2); border-radius:5px; overflow:hidden; margin-bottom:1rem;">
+    <div style="width:1.54%; height:100%; background:linear-gradient(90deg, var(--accent), var(--accent2)); border-radius:5px; min-width:8px;"></div>
+  </div>
+
+  <p style="font-size:0.88rem; color:var(--text-dim); margin-bottom:0.8rem;">
+    RimWorld has ~9,200 C# files. This knowledge system analyzes them step by step by reading the decompiled source code.
+    So far the <strong>core architectures</strong> have been captured — the systems that hold everything together (tick loop, thing hierarchy, job system, pathfinding, health, etc.).
+  </p>
+
+  <table style="font-size:0.85rem;">
+    <tr><th>Namespace</th><th>Files</th><th>Analyzed</th><th>Status</th></tr>
+    <tr><td>Verse</td><td>1,747</td><td>85</td><td style="color:var(--yellow);">🔄 Core systems captured</td></tr>
+    <tr><td>Verse.AI</td><td>~278</td><td>30</td><td style="color:var(--yellow);">🔄 Job/ThinkTree/Combat</td></tr>
+    <tr><td>RimWorld</td><td>5,913</td><td>25</td><td style="color:var(--yellow);">🔄 Needs/Apparel/Recipes</td></tr>
+    <tr><td>Rest (8 namespaces)</td><td>~1,260</td><td>0</td><td style="color:var(--text-dim);">⬜ Not started yet</td></tr>
+  </table>
+</div>
+
+<!-- Gaps -->
+<h3 style="margin-top:1.5rem;">What's Missing in This Answer</h3>
+<div class="box box-warn">
+  <div class="label">These files have not been read yet</div>
+  <p style="font-size:0.88rem; color:var(--text-dim); margin-bottom:0.5rem;">
+    The following code locations belong to the temperature system but are not yet captured in the knowledge base.
+    The answer above is based on what has been analyzed so far — it is correct but not complete.
+  </p>
+  <ul style="margin-top:0.5rem; padding-left:1.2rem; color:var(--text-dim); font-size:0.88rem;">
+    <li><code>WallEqualizationTempChangePerInterval</code> — the exact formula for heat flow through walls</li>
+    <li><code>TempDiffAdjusted</code> — the dampening curve at extreme temperature differences</li>
+    <li><code>RegenerateEqualizationData</code> — how the equalizeCells list is built</li>
+    <li><code>Building_Vent.cs</code> — how vents work internally</li>
+    <li><code>Building_Cooler.cs</code> — how coolers work internally</li>
+    <li>Temperature overlay rendering</li>
+  </ul>
+</div>
+
+<div class="footer">
+  <span>RimWorld Internals — Knowledge Sync</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+  <span>Updated: 2026-03-19</span>
+</div>
+
+</body>
+</html>

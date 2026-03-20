@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Region-System — RW Internals</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="back-link" href="../001-room-temperatur-equalization.html">&larr; Zur&uuml;ck zur Anfrage</a>
+
+<div class="header">
+  <div class="meta">
+    <span>Namespace: Verse</span>
+  </div>
+  <h1>Region-System</h1>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#1</span>
+  <span class="entry-title">Region</span>
+  <span class="entry-file">Verse/Region.cs:1-610</span>
+  <p class="entry-desc">12&times;12 Grundbaustein des Pathfinding-Systems. Enth&auml;lt closedIndex[8] f&uuml;r parallele BFS-Traversals, ListerThings f&uuml;r schnelle Thing-Queries, und Danger-Cache f&uuml;r Pawn-AI.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#2</span>
+  <span class="entry-title">RegionGrid</span>
+  <span class="entry-file">Verse/RegionGrid.cs:1-253</span>
+  <p class="entry-desc">Region[] Array &uuml;ber die gesamte Map. Auto-Rebuild bei Terrain-/Geb&auml;ude-&Auml;nderungen. UpdateClean verarbeitet max. 16 dirty Regions pro Frame.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#3</span>
+  <span class="entry-title">RegionTraverser</span>
+  <span class="entry-file">Verse/RegionTraverser.cs:1-242</span>
+  <p class="entry-desc">BFS-Traversal mit Worker-Pool (8 Worker). Verwendet closedIndex-Trick: statt visited-HashSet wird ein globaler Counter pro Worker erh&ouml;ht &mdash; O(1) statt O(n) Reset.</p>
+  <p class="entry-modding">BreadthFirstTraverse f&uuml;r eigene Erreichbarkeits-Queries nutzen.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#4</span>
+  <span class="entry-title">District</span>
+  <span class="entry-file">Verse/District.cs:1-338</span>
+  <p class="entry-desc">Zusammenfassung mehrerer Regions zu einem logischen Bereich. Room-Zugeh&ouml;rigkeit, OpenRoofCountStopAt mit Lazy-Evaluation f&uuml;r Performance.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#5</span>
+  <span class="entry-title">RegionType</span>
+  <span class="entry-file">Verse/RegionType.cs:1-16</span>
+  <p class="entry-desc">Flags-Enum mit vier Typen: Normal (begehbar), Portal (T&uuml;ren), Fence (Z&auml;une, blockiert Tiere), Impassable (W&auml;nde/Felsen).</p>
+</div>
+
+<div class="footer">
+  <span>RimWorld Internals &mdash; Wissen Sync</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+</div>
+
+</body>
+</html>

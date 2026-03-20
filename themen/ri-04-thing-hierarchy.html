@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Thing-Hierarchie — RW Internals</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="back-link" href="../001-room-temperatur-equalization.html">&larr; Zur&uuml;ck zur Anfrage</a>
+
+<div class="header">
+  <div class="meta">
+    <span>Namespace: Verse</span>
+  </div>
+  <h1>Thing-Hierarchie</h1>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#1</span>
+  <span class="entry-title">Thing Kern-Felder, mapIndexOrState</span>
+  <span class="entry-file">Verse/Thing.cs:17-69</span>
+  <p class="entry-desc">Kern-Felder jedes Things: thingIDNumber, def, mapIndexOrState (State-Machine: -1=Uninitialized, -2=Spawned via mapIndex, -3=Discarded, -4=InWorldPawn, -5=InContainer).</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#2</span>
+  <span class="entry-title">SpawnSetup</span>
+  <span class="entry-file">Verse/Thing.cs:803-928</span>
+  <p class="entry-desc">15+ Subsystem-Registrierungen beim Spawnen: ThingGrid, RegionDirtyer, ListerThings, CoverGrid, edificeGrid, GlowGrid, MapMeshDirty, etc. Reihenfolge ist fest.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#3</span>
+  <span class="entry-title">DeSpawn</span>
+  <span class="entry-file">Verse/Thing.cs:945-1036</span>
+  <p class="entry-desc">Spiegelbildliche Deregistrierung zu SpawnSetup: Alle Subsysteme werden in umgekehrter Reihenfolge benachrichtigt. mapIndexOrState wird zur&uuml;ckgesetzt.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#4</span>
+  <span class="entry-title">ThingWithComps Component-System</span>
+  <span class="entry-file">Verse/ThingWithComps.cs:1-221</span>
+  <p class="entry-desc">DER Modding-Mechanismus: ThingComps werden per XML definiert und zur Laufzeit instanziiert. GetComp&lt;T&gt; ist optimiert mit internem Cache.</p>
+  <p class="entry-modding">DER Modding-Mechanismus &mdash; eigene ThingComps f&uuml;r neue Funktionalit&auml;t per XML + C#.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#5</span>
+  <span class="entry-title">Building</span>
+  <span class="entry-file">Verse/Building.cs:1-684</span>
+  <p class="entry-desc">Erbt von ThingWithComps. MinTickRate = 6 (Building tickt maximal alle 6 Ticks). Verwaltet edificeGrid-Registrierung und Paint-System f&uuml;r Farben.</p>
+</div>
+
+<div class="footer">
+  <span>RimWorld Internals &mdash; Wissen Sync</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+</div>
+
+</body>
+</html>

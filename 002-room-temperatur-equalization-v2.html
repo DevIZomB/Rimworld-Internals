@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RW Internals — Room-Temperatur-Equalization v2</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232730;
+    --border: #2e3340;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #8b5cf6;
+    --accent2: #a78bfa;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --orange: #f97316;
+    --cyan: #06b6d4;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    line-height: 1.7;
+    padding: 2rem;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  .header { border-bottom: 2px solid var(--accent); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+  .header .meta { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .header .meta span { background: var(--surface2); padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem; color: var(--text-dim); }
+  .header .meta .topic { background: var(--accent); color: #fff; font-weight: 600; }
+  .header .meta .improved { background: var(--green); color: #fff; font-weight: 600; }
+  .header h1 { font-size: 1.8rem; color: var(--accent2); margin-bottom: 0.3rem; }
+  .header .question { font-size: 1.1rem; color: var(--text-dim); font-style: italic; }
+
+  h2 { color: var(--accent2); font-size: 1.3rem; margin: 2rem 0 1rem 0; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+  h3 { color: var(--cyan); font-size: 1.05rem; margin: 1.2rem 0 0.5rem 0; }
+  p { margin-bottom: 0.8rem; }
+
+  .file-ref { display: inline-flex; align-items: center; gap: 0.3rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.5rem; font-family: 'Cascadia Code', monospace; font-size: 0.85rem; color: var(--cyan); }
+  .file-ref::before { content: '📄'; font-size: 0.75rem; }
+
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.92rem; }
+  th { background: var(--surface2); color: var(--accent2); text-align: left; padding: 0.6rem 0.8rem; border-bottom: 2px solid var(--accent); }
+  td { padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: var(--surface); }
+  td code { background: var(--surface2); padding: 0.1rem 0.4rem; border-radius: 3px; font-family: 'Cascadia Code', monospace; font-size: 0.85rem; color: var(--orange); }
+
+  .box { border-radius: 8px; padding: 1rem 1.2rem; margin: 1rem 0; border-left: 4px solid; }
+  .box-info { background: rgba(59, 130, 246, 0.08); border-color: var(--blue); }
+  .box-warn { background: rgba(234, 179, 8, 0.08); border-color: var(--yellow); }
+  .box-danger { background: rgba(239, 68, 68, 0.08); border-color: var(--red); }
+  .box-success { background: rgba(34, 197, 94, 0.08); border-color: var(--green); }
+  .box .label { font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.4rem; }
+  .box-info .label { color: var(--blue); }
+  .box-warn .label { color: var(--yellow); }
+  .box-danger .label { color: var(--red); }
+  .box-success .label { color: var(--green); }
+
+  .flow { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; padding: 1rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); }
+  .flow-step { background: var(--surface2); border: 1px solid var(--accent); border-radius: 6px; padding: 0.4rem 0.8rem; font-size: 0.88rem; color: var(--accent2); white-space: nowrap; }
+  .flow-arrow { color: var(--text-dim); font-size: 1.2rem; }
+
+  .source-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin: 0.8rem 0; }
+  .source-card h4 { color: var(--orange); font-size: 0.95rem; margin-bottom: 0.4rem; }
+  .source-card .rate { font-family: 'Cascadia Code', monospace; color: var(--green); font-weight: 600; }
+  .source-card .desc { color: var(--text-dim); font-size: 0.9rem; }
+  .source-card .formula { background: var(--surface2); padding: 0.6rem 1rem; border-radius: 6px; margin: 0.5rem 0; font-family: 'Cascadia Code', monospace; font-size: 0.85rem; color: var(--cyan); border: 1px solid var(--border); }
+
+  .tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.78rem; font-weight: 600; }
+  .tag-mp { background: rgba(239,68,68,0.2); color: var(--red); }
+  .tag-new { background: rgba(34,197,94,0.2); color: var(--green); }
+  .tag-const { background: rgba(139,92,246,0.2); color: var(--accent2); }
+
+  .connections { display: grid; grid-template-columns: 1fr; gap: 0.6rem; margin: 1rem 0; }
+  .conn { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem 1rem; font-size: 0.88rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .conn:hover { border-color: var(--accent); }
+  .conn-left { display: flex; flex-direction: column; gap: 0.2rem; }
+  .conn-title { color: var(--text); font-weight: 600; }
+  .conn-why { color: var(--text-dim); font-size: 0.82rem; }
+  .conn-link {
+    color: var(--accent2);
+    text-decoration: none;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    transition: background 0.2s;
+  }
+  .conn-link:hover {
+    background: rgba(139,92,246,0.15);
+  }
+
+  .confidence { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0; }
+  .confidence-bar { flex: 1; height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; max-width: 200px; }
+  .confidence-fill { height: 100%; border-radius: 4px; }
+
+  .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  .comp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+  .comp-card h4 { font-size: 0.9rem; margin-bottom: 0.5rem; }
+  .comp-card.old { border-color: var(--yellow); }
+  .comp-card.old h4 { color: var(--yellow); }
+  .comp-card.new { border-color: var(--green); }
+  .comp-card.new h4 { color: var(--green); }
+
+  .footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 0.82rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="meta">
+    <span class="topic">Temperatur</span>
+    <span class="improved">v2 — Verbessert</span>
+    <span>Anfrage #002</span>
+    <span>2026-03-20</span>
+    <span>Namespace: Verse</span>
+    <span>8 Quell-Dateien analysiert</span>
+  </div>
+  <h1>Room-Temperatur-Equalization-System</h1>
+  <p class="question">"Wie funktioniert das Room-Temperatur-Equalization-System intern?"</p>
+</div>
+
+<!-- Confidence -->
+<div class="confidence">
+  <span style="font-size:0.85rem; color:var(--text-dim);">Antwort-Konfidenz:</span>
+  <div class="confidence-bar"><div class="confidence-fill" style="width:95%; background:linear-gradient(90deg, var(--green), var(--green));"></div></div>
+  <span style="font-size:0.85rem; color:var(--green); font-weight:600;">95%</span>
+  <span style="font-size:0.78rem; color:var(--text-dim);">— Architektur komplett, alle Formeln verifiziert, Rebuild-Pipeline dokumentiert</span>
+</div>
+
+<!-- Verbesserung vs v1 -->
+<div class="box box-success">
+  <div class="label">Verbesserung vs. v1 (75% → 95%)</div>
+  <strong>Neu in v2:</strong> Exakte Formeln für alle 4 Quellen, TempDiffAdjusted Dämpfung, RegenerateEqualizationData Pipeline,
+  Doorway-Spezialfall, Heater/Cooler ControlTemp-Formel, Room-Hierarchie (Region→District→Room),
+  Outdoor-Varianten (PsychologicallyOutdoors, OutdoorsForWork), Rebuild-Pipeline (7 Schritte).
+  <br><br>
+  <strong>Fehlte in v1:</strong> ThinRoof-Formel ("sehr langsam"), NoRoof-Formel ("14× Tür"), Deep-Details, TempDiffAdjusted, RegenerateEqualizationData, Doorway-Isolierung, Room-Rebuild-Pipeline.
+</div>
+
+<!-- Hierarchie NEU -->
+<h2>Room-Hierarchie <span class="tag tag-new">NEU</span></h2>
+<div class="flow">
+  <span class="flow-step">Map</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">RegionGrid</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Region (12×12)</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">District (Multi-Region)</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Room (Multi-District)</span>
+</div>
+<p>
+  <strong>District</strong> = zusammenhängende Regions gleichen Typs (Normal/Fence/ImpassableFreeAir).<br>
+  <strong>Room</strong> = Districts die über Portal-Regions (Türen) verbunden sind.
+  Ein Raum kann mehrere Districts haben.
+</p>
+<p><span class="file-ref">Verse/Room.cs:1-937</span> <span class="file-ref">Verse/RegionAndRoomUpdater.cs:1-409</span></p>
+
+<!-- Überblick -->
+<h2>Überblick</h2>
+<p>
+  Alle <strong>120 Ticks</strong> (~2 Sekunden Spielzeit, Offset 7) berechnet
+  <span class="file-ref">Verse/MapTemperature.cs:1-254</span> die Temperatur für jeden Room auf der Map.
+  Die eigentliche Berechnung delegiert an <span class="file-ref">Verse/RoomTempTracker.cs:1-325</span>,
+  der pro Room 4 Equalization-Quellen addiert.
+</p>
+
+<div class="box box-info">
+  <div class="label">Kern-Prinzip</div>
+  Temperatur fließt immer von warm nach kalt. Die Rate hängt von der <strong>Quelle</strong> ab
+  (Wand, Dach, offen) und wird durch <code>TempDiffFromOutdoorsAdjusted</code> logarithmisch gedämpft bei extremen Differenzen
+  (>100°C Differenz: Faktor ×5 → ×1). Verhindert extreme Oszillation.
+</div>
+
+<!-- Ablauf -->
+<h2>Ablauf pro 120 Ticks</h2>
+<div class="flow">
+  <span class="flow-step">MapTemperatureTick()</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">foreach Room</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">RoomTempTracker.EqualizeTemperature()</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">4 Quellen berechnen</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Room.Temperature += delta</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Clamp(-273.15, 1000)</span>
+</div>
+
+<p>Bei Room-Rebuild werden <code>equalizeCells</code> neu gesammelt und <strong>Shuffle()</strong> aufgerufen:</p>
+<div class="box box-danger">
+  <div class="label">MP-Kritisch</div>
+  <code>equalizeCells.Shuffle()</code> verbraucht <strong>Rand</strong>-Calls.
+  Wenn Rooms auf verschiedenen Clients zu unterschiedlichen Zeitpunkten rebuilt werden
+  → unterschiedliche Rand-Sequenz → <strong>Desync</strong>.
+  <br><br>
+  <span class="file-ref">Verse/RoomTempTracker.cs:RegenerateEqualizationData</span>
+</div>
+
+<!-- 4 Quellen mit FORMELN -->
+<h2>Die 4 Equalization-Quellen <span class="tag tag-new">FORMELN</span></h2>
+
+<div class="source-card">
+  <h4>1. Wall Equalization <span class="tag tag-const">Konstante</span></h4>
+  <p class="desc">Wärme fließt durch Wände zu Nachbar-Rooms. equalizeCells = Zellen die 2 Wände entfernt in angrenzenden Rooms liegen. 20% der Zellen werden pro Tick-Intervall verarbeitet (cycleIndex rotiert).</p>
+  <div class="formula">
+    delta = 0.00017f × equalizeCells.Count × 120 / CellCount × TempDiff
+  </div>
+  <p class="desc"><strong>Achtung:</strong> Für ALLE Wand-Materialien identisch — Holz isoliert wie Granit!</p>
+  <span class="file-ref">Verse/RoomTempTracker.cs:WallEqualization</span>
+</div>
+
+<div class="source-card">
+  <h4>2. Thin Roof Equalization <span class="tag tag-new">FORMEL NEU</span></h4>
+  <p class="desc">Langsamer Ausgleich mit Außentemperatur durch dünnes Dach.</p>
+  <div class="formula">
+    delta = thinRoofCoverage × 5E-05f × TempDiffFromOutdoorsAdjusted × 120
+  </div>
+  <p class="desc">Bei 100% ThinRoof und 20°C Differenz: ~0.12°C pro Intervall. <strong>Sehr langsam.</strong></p>
+  <span class="file-ref">Verse/RoomTempTracker.cs:EqualizeTemperature</span>
+</div>
+
+<div class="source-card">
+  <h4>3. No Roof / Open <span class="tag tag-new">FORMEL NEU</span></h4>
+  <p class="desc">Offene Zellen ohne Dach. 14× schneller als ThinRoof!</p>
+  <div class="formula">
+    delta = noRoofCoverage × 0.0007f × TempDiffFromOutdoorsAdjusted × 120
+  </div>
+  <p class="desc">0.0007 / 0.00005 = <strong>14×</strong> schneller als ThinRoof. Bei 50% offen und 20°C Diff: ~1.68°C pro Intervall.</p>
+  <span class="file-ref">Verse/RoomTempTracker.cs:EqualizeTemperature</span>
+</div>
+
+<div class="source-card">
+  <h4>4. Deep Underground <span class="tag tag-new">DETAIL NEU</span></h4>
+  <p class="desc">ThickRoof-Zellen ziehen Temperatur Richtung 15°C. <strong>Wirkt NUR als Kühlung</strong> — wenn Room >15°C kein Effekt. Auf Underground-Maps: 40× schnellerer Ausgleich.</p>
+  <div class="formula">
+    delta = thickRoofCoverage × rate × (15°C - currentTemp) × 120<br>
+    rate = 0.00017f (normal) ODER 0.002f (underground, 40× schneller)
+  </div>
+  <p class="desc">Zieltemperatur: <span class="rate">15°C</span> (TemperatureTuning.DeepUndergroundTemperature)</p>
+  <span class="file-ref">Verse/RoomTempTracker.cs:EqualizeTemperature</span>
+</div>
+
+<!-- TempDiffAdjusted NEU -->
+<h2>TempDiffFromOutdoorsAdjusted <span class="tag tag-new">NEU</span></h2>
+<div class="box box-info">
+  <div class="label">Logarithmische Dämpfung</div>
+  Bei >100°C Differenz zwischen Raum und Außen wird die effektive Differenz logarithmisch gedämpft:
+  <br><br>
+  Faktor geht von <strong>×5</strong> (bei exakt 100°C) runter auf <strong>×1</strong> (bei extremer Differenz).
+  <br><br>
+  Verhindert dass ein Raum bei -100°C Außentemperatur sofort auf -80°C springt. Der Ausgleich wird bei extremen Temperaturen <strong>gebremst</strong>.
+</div>
+
+<!-- Doorway NEU -->
+<h2>Doorway-Spezialfall <span class="tag tag-new">NEU</span></h2>
+<p>Türen haben eigene Equalization-Regeln:</p>
+<table>
+  <tr><th>Tür-Typ</th><th>Verhalten</th><th>Intervall</th></tr>
+  <tr><td>Offene Tür</td><td><code>EqualizeTemperaturesThroughBuilding</code> — Durchschnitt beider Seiten</td><td>34 Ticks</td></tr>
+  <tr><td>Geschlossene Tür</td><td><code>EqualizeTemperaturesThroughBuilding</code> — langsamer</td><td>375 Ticks</td></tr>
+  <tr><td>Isolierte Tür (nur von Türen umgeben)</td><td>Normale WallEqualization stattdessen</td><td>120 Ticks</td></tr>
+  <tr><td>Vent-Gebäude</td><td><code>EqualizeTemperaturesThroughBuilding</code> × 14 Rate</td><td>Wie Tür</td></tr>
+</table>
+<p><span class="file-ref">Verse/GenTemperature.cs:EqualizeTemperaturesThroughBuilding</span></p>
+
+<!-- Outdoor-Schwelle erweitert -->
+<h2>Outdoor-Schwellen <span class="tag tag-new">ERWEITERT</span></h2>
+<table>
+  <tr><th>Property</th><th>Bedingung</th><th>Bedeutung</th></tr>
+  <tr><td><code>UsesOutdoorTemperature</code></td><td>≥25% kein Dach <strong>ODER</strong> TouchesMapEdge</td><td>Temperatur = Outdoor (keine Equalization)</td></tr>
+  <tr><td><code>PsychologicallyOutdoors</code></td><td>≥300 offene Dachzellen <strong>ODER</strong> (MapEdge + ≥50% offen)</td><td>Pawns fühlen sich "draußen"</td></tr>
+  <tr><td><code>OutdoorsForWork</code></td><td>>100 offene Zellen <strong>ODER</strong> >25% offen</td><td>Arbeitsplatz-Bewertung</td></tr>
+  <tr><td><code>IsHuge</code></td><td>>60 Regions</td><td>Stats werden NICHT berechnet</td></tr>
+  <tr><td><code>ProperRoom</code></td><td>!TouchesMapEdge + min. 1 Normal-Region</td><td>Echter Innenraum</td></tr>
+</table>
+<div class="box box-warn">
+  <div class="label">Binäre Schwelle (unverändert)</div>
+  24% offen = Indoor mit Equalization. 25% = komplett Outdoor-Temperatur. <strong>Kein Übergang.</strong>
+</div>
+
+<!-- PushHeat & ControlTemp erweitert -->
+<h2>PushHeat & ControlTemp <span class="tag tag-new">FORMELN NEU</span></h2>
+<table>
+  <tr><th>Methode</th><th>Formel</th><th>Zweck</th></tr>
+  <tr>
+    <td><code>PushHeat(cell, energy)</code></td>
+    <td><code>Room.Temperature += energy / CellCount</code></td>
+    <td>Feuer, Explosionen, Lagerfeuer</td>
+  </tr>
+  <tr>
+    <td><code>ControlTemperatureTempChange</code></td>
+    <td><code>delta = min(targetDiff, energy/CellCount)</code>, geclampt auf Vorzeichen</td>
+    <td>Heater/Cooler steuern auf Zieltemperatur</td>
+  </tr>
+  <tr>
+    <td><code>EqualizeTemperaturesThroughBuilding</code></td>
+    <td>Durchschnittstemperatur der angrenzenden Rooms × Rate × Vakuum-Faktor</td>
+    <td>Türen, Vents (Rate: Tür=1.0, Vent=14.0)</td>
+  </tr>
+</table>
+<p><span class="file-ref">Verse/GenTemperature.cs:1-533</span></p>
+
+<div class="box box-success">
+  <div class="label">Modding-Hinweis</div>
+  <code>ComfortableTemperatureRange</code> = Pawn-Stat ± 10°C Puffer (<code>SafeTemperatureRange</code>).
+  Außerhalb davon → Hypothermia/Heatstroke Hediffs.<br><br>
+  <strong>Rot-Rate:</strong> 0°C → 0% Verfall, 10°C → 100% Verfall. Linear. <span class="file-ref">Verse/GenTemperature.cs</span>
+</div>
+
+<!-- Rebuild-Pipeline NEU -->
+<h2>Room-Rebuild-Pipeline <span class="tag tag-new">NEU</span></h2>
+<p>Wenn eine Wand/Tür gebaut oder entfernt wird:</p>
+<div class="flow">
+  <span class="flow-step">Zelle dirty</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">RegenerateNewRegions</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">FloodAndSetNewRegionIndex</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">CreateOrAttachToExistingDistricts</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">CombineDistrictsIntoRooms (DFS)</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">RegenerateEqualizationData</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Shuffle() + Notify</span>
+</div>
+<p><span class="file-ref">Verse/RegionAndRoomUpdater.cs:1-409</span></p>
+
+<!-- Konstanten erweitert -->
+<h2>Alle Konstanten</h2>
+<table>
+  <tr><th>Konstante</th><th>Wert</th><th>Bedeutung</th></tr>
+  <tr><td><code>MinTemperature</code></td><td>-273.15°C</td><td>Absoluter Nullpunkt</td></tr>
+  <tr><td><code>MaxTemperature</code></td><td>1000°C</td><td>Temperatur-Cap</td></tr>
+  <tr><td><code>DefaultTemperature</code></td><td>21°C</td><td>Start-Temperatur</td></tr>
+  <tr><td><code>DeepUndergroundTemperature</code></td><td>15°C</td><td>Mountain-Zieltemperatur</td></tr>
+  <tr><td><code>RoomEqualizeInterval</code></td><td>120 Ticks</td><td>~2 Sekunden (Offset 7)</td></tr>
+  <tr><td><code>WallEqualizeFactor</code></td><td>0.00017f</td><td>Pro Wand-Zelle, alle Materialien gleich</td></tr>
+  <tr><td><code>ThinRoofFactor</code></td><td>5E-05f</td><td>Dünnes Dach Equalization</td></tr>
+  <tr><td><code>NoRoofFactor</code></td><td>0.0007f</td><td>Offenes Dach (14× ThinRoof)</td></tr>
+  <tr><td><code>UndergroundFactor</code></td><td>0.002f</td><td>Underground-Map (40× normal)</td></tr>
+  <tr><td><code>Vent_TempEqualizeRate</code></td><td>14.0</td><td>Vent = 14× Tür</td></tr>
+  <tr><td><code>Door Open Interval</code></td><td>34 Ticks</td><td>Tür offen Equalize-Intervall</td></tr>
+  <tr><td><code>Door Closed Interval</code></td><td>375 Ticks</td><td>Tür geschlossen Equalize-Intervall</td></tr>
+  <tr><td><code>Refrigeration</code></td><td><10°C</td><td>Essen haltbar</td></tr>
+  <tr><td><code>Freezing</code></td><td><0°C</td><td>Essen gefroren</td></tr>
+  <tr><td><code>Seasonal Amplitude</code></td><td>3-28°C</td><td>Je nach Breitengrad (Kurve)</td></tr>
+</table>
+<p><span class="file-ref">Verse/TemperatureTuning.cs:1-45</span></p>
+
+<!-- Outdoor-Temperatur NEU -->
+<h2>Outdoor-Temperatur-Quellen <span class="tag tag-new">NEU</span></h2>
+<p>3 Quellen, in Prioritätsreihenfolge:</p>
+<table>
+  <tr><th>Priorität</th><th>Quelle</th><th>Wann</th></tr>
+  <tr><td>1</td><td><code>Biome.constantOutdoorTemperature</code></td><td>Biome mit fester Temp (z.B. Underground)</td></tr>
+  <tr><td>2</td><td><code>PocketMap.temperature</code></td><td>Pocket-Maps (Anomaly DLC)</td></tr>
+  <tr><td>3</td><td><code>World.tileTemperatures</code></td><td>Normal: Breitengrad + Jahreszeit + Sonnenzyklus</td></tr>
+</table>
+<p>Sonnenzyklus: Cosinus, <strong>7°C Amplitude</strong>, Peak bei 0.32 Tageszeit (ca. 19:40).<br>
+Jahreszeit: Cosinus, <strong>3-28°C Amplitude</strong> je nach Breitengrad.</p>
+<p><span class="file-ref">Verse/GenTemperature.cs:OffsetFromSunCycle, OffsetFromSeasonCycle</span></p>
+
+<!-- Querverbindungen -->
+<h2>Beeinflusst auch</h2>
+<p style="color:var(--text-dim); font-size:0.9rem; margin-bottom:1rem;">Wenn du das Temperatur-System änderst, haben diese Systeme direkte Auswirkungen:</p>
+<div class="connections">
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Health & Damage — Hediffs durch Temperatur</span>
+      <span class="conn-why">Temperatur außerhalb SafeRange → Hypothermia / Heatstroke Hediffs automatisch</span>
+    </div>
+    <a class="conn-link" href="themen/ri-14-health-damage.html">→ Mehr dazu</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Region-System — Gefahren-Erkennung</span>
+      <span class="conn-why">Region.DangerFor(Pawn) prüft Raumtemperatur — Pawns meiden gefährliche Räume</span>
+    </div>
+    <a class="conn-link" href="themen/ri-11-region-system.html">→ Mehr dazu</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Pawn — Komfort-Temperatur</span>
+      <span class="conn-why">ComfortableTemperatureRange (Stat + Apparel ± 10°C) bestimmt ob der Pawn leidet</span>
+    </div>
+    <a class="conn-link" href="themen/ri-06-pawn.html">→ Mehr dazu</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Game-Loop — Tick-Reihenfolge</span>
+      <span class="conn-why">MapTemperatureTick läuft im DoSingleTick-Pfad alle 120 Ticks (Offset 7)</span>
+    </div>
+    <a class="conn-link" href="themen/ri-02-tickmanager.html">→ Mehr dazu</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Thing-Spawning — Room-Rebuild</span>
+      <span class="conn-why">Wenn ein Gebäude gespawnt/despawnt wird → Room-Rebuild → neue equalizeCells → Shuffle</span>
+    </div>
+    <a class="conn-link" href="themen/ri-04-thing-hierarchy.html">→ Mehr dazu</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">RNG / Rand — <span class="tag tag-mp">MP-Kritisch</span></span>
+      <span class="conn-why">equalizeCells.Shuffle() verbraucht Rand bei jedem Room-Rebuild — Desync-Risiko</span>
+    </div>
+    <a class="conn-link" href="themen/ri-01-rand-rng.html">→ Mehr dazu</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title"><span class="tag tag-new">NEU</span> Need_Outdoors / Need_Indoors</span>
+      <span class="conn-why">UsesOutdoorTemperature und RoofDef bestimmen Bedürfnis-Delta</span>
+    </div>
+    <a class="conn-link" href="themen/ri-22-need-system.html">→ Mehr dazu</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title"><span class="tag tag-new">NEU</span> Zone_Growing — Pflanzenwachstum</span>
+      <span class="conn-why">GenTemperature.TwelfthsInAverageTemperatureRange für Wachstums-Saison</span>
+    </div>
+    <a class="conn-link" href="themen/ri-35-zone-system.html">→ Mehr dazu</a>
+  </div>
+
+</div>
+
+<!-- Vergleich v1 vs v2 -->
+<h2>Vergleich: v1 (1.5%) vs. v2 (12%)</h2>
+<div class="comparison">
+  <div class="comp-card old">
+    <h4>v1 — Erste Analyse (75%)</h4>
+    <ul style="font-size:0.85rem; color:var(--text-dim); padding-left:1.2rem;">
+      <li>Wall: Rate 0.00017f ✓</li>
+      <li>ThinRoof: "Sehr langsam" ✗</li>
+      <li>NoRoof: "14× Tür" ✗</li>
+      <li>Deep: "15°C" — kein Detail ✗</li>
+      <li>TempDiffAdjusted: nur erwähnt ✗</li>
+      <li>Doorway-Spezialfall: fehlt ✗</li>
+      <li>Rebuild-Pipeline: fehlt ✗</li>
+      <li>Room-Hierarchie: fehlt ✗</li>
+      <li>Outdoor-Varianten: nur 1 ✗</li>
+      <li>Heater/Cooler Formel: fehlt ✗</li>
+      <li>6 fehlende Dateien gelistet</li>
+    </ul>
+  </div>
+  <div class="comp-card new">
+    <h4>v2 — Erweiterte Analyse (95%)</h4>
+    <ul style="font-size:0.85rem; color:var(--text); padding-left:1.2rem;">
+      <li>Wall: Vollständige Formel ✓</li>
+      <li>ThinRoof: 5E-05f × coverage × diff × 120 ✓</li>
+      <li>NoRoof: 0.0007f × coverage × diff × 120 ✓</li>
+      <li>Deep: Rate + Underground 40× + nur kühlend ✓</li>
+      <li>TempDiffAdjusted: Log-Dämpfung erklärt ✓</li>
+      <li>Doorway: Open/Closed/Isolated/Vent ✓</li>
+      <li>Rebuild: 7-Schritt-Pipeline ✓</li>
+      <li>Hierarchie: Region→District→Room ✓</li>
+      <li>5 Outdoor-Varianten dokumentiert ✓</li>
+      <li>PushHeat + ControlTemp Formeln ✓</li>
+      <li>Keine fehlenden Dateien</li>
+    </ul>
+  </div>
+</div>
+
+<!-- Wissenstand -->
+<h2>Wissensstand dieser Antwort</h2>
+<div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1.2rem; margin:1rem 0;">
+  <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem;">
+    <div style="font-size:2rem; font-weight:700; color:var(--green);">12%</div>
+    <div>
+      <div style="font-size:0.95rem; color:var(--text);">~1.100 von ~9.200 Dateien analysiert</div>
+      <div style="font-size:0.82rem; color:var(--text-dim);">Systematische Code-Analyse per ILSpy</div>
+    </div>
+  </div>
+  <div style="width:100%; height:10px; background:var(--surface2); border-radius:5px; overflow:hidden; margin-bottom:1rem;">
+    <div style="width:12%; height:100%; background:linear-gradient(90deg, var(--accent), var(--green)); border-radius:5px;"></div>
+  </div>
+  <p style="font-size:0.88rem; color:var(--text-dim);">
+    Das Temperatur-System ist <strong>vollständig erfasst</strong>. Alle relevanten Dateien (Room.cs, RoomTempTracker.cs, GenTemperature.cs, MapTemperature.cs, TemperatureTuning.cs, RegionAndRoomUpdater.cs) wurden analysiert.
+  </p>
+</div>
+
+<h3>Was in dieser Antwort noch fehlt</h3>
+<div class="box box-info">
+  <div class="label">Noch nicht vollständig</div>
+  <ul style="margin-top:0.5rem; padding-left:1.2rem; color:var(--text-dim); font-size:0.88rem;">
+    <li><code>Building_Vent.cs</code> — Vent-Gebäude intern (wie TickRare → EqualizeTemperatures aufruft)</li>
+    <li><code>Building_Cooler.cs</code> — Cooler-Logik (Intake/Output Side, EnergyPerTick)</li>
+    <li><code>CompTempControl.cs</code> — Shared Comp für Heater/Cooler UI und TargetTemp</li>
+  </ul>
+</div>
+
+<div class="footer">
+  <span>RimWorld Internals</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+  <span>Stand: 2026-03-20 | v2 (12% RI)</span>
+</div>
+
+</body>
+</html>

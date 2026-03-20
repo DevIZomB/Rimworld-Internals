@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pawn — RW Internals</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="back-link" href="../001-room-temperature-equalization-en.html">&larr; Back to query</a>
+
+<div class="header">
+  <div class="meta">
+    <span>Namespace: Verse</span>
+  </div>
+  <h1>Pawn</h1>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#1</span>
+  <span class="entry-title">~45 Tracker Fields</span>
+  <span class="entry-file">Verse/Pawn.cs:16-134</span>
+  <p class="entry-desc">Each pawn has ~45 tracker fields (health, jobs, needs, mindState, stances, skills, story, relations, etc.). Each tracker is a separate object with its own tick cycle.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#2</span>
+  <span class="entry-title">Pawn.Tick</span>
+  <span class="entry-file">Verse/Pawn.cs:1525-1603</span>
+  <p class="entry-desc"><span class="tag tag-mp">Important</span> &mdash; ~20 trackers are ticked in fixed order: stances &rarr; pather &rarr; jobs &rarr; health &rarr; mindState &rarr; needs &rarr; etc. Order is gameplay-relevant.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#3</span>
+  <span class="entry-title">Pawn.TickInterval</span>
+  <span class="entry-file">Verse/Pawn.cs:1605-1716</span>
+  <p class="entry-desc"><span class="tag tag-mp">MP-Critical</span> &mdash; Delta-based ticking. Interval depends on camera distance (closer = more frequent). In multiplayer this must be synchronized since different players have different camera positions.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#4</span>
+  <span class="entry-title">SpawnSetup</span>
+  <span class="entry-file">Verse/Pawn.cs:1345-1455</span>
+  <p class="entry-desc">Spawn logic: Dead pawns are converted to corpses, WorldPawns list is updated, PawnComponentsUtility initializes all trackers that are still null.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#5</span>
+  <span class="entry-title">Kill</span>
+  <span class="entry-file">Verse/Pawn.cs:2075-2326</span>
+  <p class="entry-desc"><span class="tag tag-mp">MP-Critical</span> &mdash; 250 lines, 6 phases: PreKill hooks &rarr; Health state &rarr; Corpse spawn &rarr; Relations notify &rarr; WorldPawns &rarr; PostKill. Rand for corpse rot variation.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#6</span>
+  <span class="entry-title">~100+ Properties</span>
+  <span class="entry-file">Verse/Pawn.cs:213-800</span>
+  <p class="entry-desc">Over 100 properties for quick access: IsColonist, IsPrisoner, IsSlave, Faction, Position, Drafted, Downed, Dead, InMentalState, etc.</p>
+</div>
+
+<div class="footer">
+  <span>RimWorld Internals &mdash; Knowledge Sync</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+</div>
+
+</body>
+</html>

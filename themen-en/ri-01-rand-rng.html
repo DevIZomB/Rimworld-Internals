@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rand &amp; RNG — RW Internals</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="back-link" href="../001-room-temperature-equalization-en.html">&larr; Back to query</a>
+
+<div class="header">
+  <div class="meta">
+    <span>Namespace: Verse</span>
+  </div>
+  <h1>Rand &amp; RNG</h1>
+</div>
+
+<div class="box box-danger">
+  <div class="label">Warning</div>
+  Every Rand call in a mod shifts the global iterations counter. For non-gameplay randomness ALWAYS use PushState/PopState!
+</div>
+
+<div class="entry">
+  <span class="entry-id">#1</span>
+  <span class="entry-title">Global State</span>
+  <span class="entry-file">Verse/Rand.cs:13-17</span>
+  <p class="entry-desc"><span class="tag tag-mp">MP-Critical</span> &mdash; Two fields define the entire RNG state: <code>seed</code> (uint) and <code>iterations</code> (uint). Every Value call increments iterations by 1. Determinism depends on all clients making exactly the same number of Rand calls.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#2</span>
+  <span class="entry-title">MurmurHash</span>
+  <span class="entry-file">Verse/MurmurHash.cs:1-34</span>
+  <p class="entry-desc">Pure hash function: GetInt(seed, iterations) &rarr; deterministic int. No side effects, no state. Used internally by Rand.Value.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#3</span>
+  <span class="entry-title">State Stack PushState/PopState</span>
+  <span class="entry-file">Verse/Rand.cs:440-454</span>
+  <p class="entry-desc">Stack-based state management: PushState() saves current seed+iterations to stack and sets new seed. PopState() restores previous state. MUST be used for UI/non-gameplay Rand.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#4</span>
+  <span class="entry-title">Value &amp; Base Operations</span>
+  <span class="entry-file">Verse/Rand.cs:35-51</span>
+  <p class="entry-desc">Rand.Value &rarr; float [0,1). Rand.Int, Rand.Bool, Rand.Range(min,max). Each call increments iterations. Rand.Chance(f) = Value &lt; f.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#5</span>
+  <span class="entry-title">MTBEventOccurs</span>
+  <span class="entry-file">Verse/Rand.cs:509-554</span>
+  <p class="entry-desc"><span class="tag tag-mp">MP-Critical</span> &mdash; Mean Time Between Events: Calculates probability per tick based on MTB days. Consumes one Rand.Value call. Heavily used (diseases, mental breaks, events).</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#6</span>
+  <span class="entry-title">Gaussian, ByCurve, InsideUnitCircle</span>
+  <span class="entry-file">Verse/Rand.cs:137-507</span>
+  <p class="entry-desc">Advanced random functions: Gaussian (Box-Muller, 2 Rand calls), ByCurve (weighted curve), InsideUnitCircle/InsideUnitCircleVec3 (rejection sampling, variable Rand calls).</p>
+  <p class="entry-connections">InsideUnitCircle consumes variable number of Rand calls depending on rejection &mdash; especially desync-dangerous.</p>
+</div>
+
+<div class="footer">
+  <span>RimWorld Internals &mdash; Knowledge Sync</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Health, Damage &amp; Injury — RW Internals</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="back-link" href="../001-room-temperatur-equalization.html">&larr; Zur&uuml;ck zur Anfrage</a>
+
+<div class="header">
+  <div class="meta">
+    <span>Namespace: Verse</span>
+  </div>
+  <h1>Health, Damage &amp; Injury</h1>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#1</span>
+  <span class="entry-title">Pawn_HealthTracker</span>
+  <span class="entry-file">Verse/Pawn_HealthTracker.cs:1-~1200</span>
+  <p class="entry-desc">Health-Manager jedes Pawns. Verwaltet State (Mobile/Down/Dead), AddHediff-Pipeline und CheckForStateChange nach jedem Schaden oder Hediff-Update.</p>
+  <p class="entry-modding">PreApplyDamage Harmony-Prefix f&uuml;r Schadensreduktion.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#2</span>
+  <span class="entry-title">DamageWorker</span>
+  <span class="entry-file">Verse/DamageWorker.cs:1-413</span>
+  <p class="entry-desc">Basis-Schadensberechnung f&uuml;r Geb&auml;ude und Pflanzen. Enth&auml;lt das Explosion-System mit Radius-Berechnung und Zell-Iteration.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#3</span>
+  <span class="entry-title">DamageWorker_AddInjury</span>
+  <span class="entry-file">Verse/DamageWorker_AddInjury.cs:1-383</span>
+  <p class="entry-desc">Pawn-spezifischer Schaden: Armor-Penetration, Schadens-Propagation durch K&ouml;rperteile, Instant-Kill-Protection. <span class="tag tag-mp">MP-Kritisch</span> &mdash; Rand in Instant-Kill-Protection.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#4</span>
+  <span class="entry-title">HealthUtility</span>
+  <span class="entry-file">Verse/HealthUtility.cs:1-879</span>
+  <p class="entry-desc">Statische Hilfsfunktionen: GetHediffDefFromDamage, FixWorstHealthCondition (DevMode-Heal), DamageUntilDowned (f&uuml;r Arrest/Down-Scenarios).</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#5</span>
+  <span class="entry-title">HealthTuning</span>
+  <span class="entry-file">Verse/HealthTuning.cs:1-150</span>
+  <p class="entry-desc">Zentrale Konstanten: HealPerDay = 8 (Tend) + 4 (Natural) + 8 (ImmunityGainSpeed), PainShock-Schwelle = 0.8, Permanent-Chance = 2%.</p>
+</div>
+
+<div class="footer">
+  <span>RimWorld Internals &mdash; Wissen Sync</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+</div>
+
+</body>
+</html>

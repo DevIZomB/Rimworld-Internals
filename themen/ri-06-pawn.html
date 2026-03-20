@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pawn — RW Internals</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="back-link" href="../001-room-temperatur-equalization.html">&larr; Zur&uuml;ck zur Anfrage</a>
+
+<div class="header">
+  <div class="meta">
+    <span>Namespace: Verse</span>
+  </div>
+  <h1>Pawn</h1>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#1</span>
+  <span class="entry-title">~45 Tracker-Felder</span>
+  <span class="entry-file">Verse/Pawn.cs:16-134</span>
+  <p class="entry-desc">Jeder Pawn besitzt ~45 Tracker-Felder (health, jobs, needs, mindState, stances, skills, story, relations, etc.). Jeder Tracker ist ein eigenes Objekt mit eigenem Tick-Zyklus.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#2</span>
+  <span class="entry-title">Pawn.Tick</span>
+  <span class="entry-file">Verse/Pawn.cs:1525-1603</span>
+  <p class="entry-desc"><span class="tag tag-mp">Important</span> &mdash; ~20 Tracker werden in fester Reihenfolge getickt: stances &rarr; pather &rarr; jobs &rarr; health &rarr; mindState &rarr; needs &rarr; etc. Reihenfolge ist gameplay-relevant.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#3</span>
+  <span class="entry-title">Pawn.TickInterval</span>
+  <span class="entry-file">Verse/Pawn.cs:1605-1716</span>
+  <p class="entry-desc"><span class="tag tag-mp">MP-Kritisch</span> &mdash; Delta-basiertes Ticking. Interval h&auml;ngt von der Kamera-Distanz ab (n&auml;her = h&auml;ufiger). Im Multiplayer muss das synchronisiert werden, da verschiedene Spieler verschiedene Kamerapositionen haben.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#4</span>
+  <span class="entry-title">SpawnSetup</span>
+  <span class="entry-file">Verse/Pawn.cs:1345-1455</span>
+  <p class="entry-desc">Spawn-Logik: Dead-Pawns werden zu Corpse konvertiert, WorldPawns-Liste wird aktualisiert, PawnComponentsUtility initialisiert alle Tracker die noch null sind.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#5</span>
+  <span class="entry-title">Kill</span>
+  <span class="entry-file">Verse/Pawn.cs:2075-2326</span>
+  <p class="entry-desc"><span class="tag tag-mp">MP-Kritisch</span> &mdash; 250 Zeilen, 6 Phasen: PreKill-Hooks &rarr; Health-State &rarr; Corpse-Spawn &rarr; Relations-Notify &rarr; WorldPawns &rarr; PostKill. Rand f&uuml;r Corpse-Rot-Variation.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#6</span>
+  <span class="entry-title">~100+ Properties</span>
+  <span class="entry-file">Verse/Pawn.cs:213-800</span>
+  <p class="entry-desc">&Uuml;ber 100 Properties f&uuml;r schnellen Zugriff: IsColonist, IsPrisoner, IsSlave, Faction, Position, Drafted, Downed, Dead, InMentalState, etc.</p>
+</div>
+
+<div class="footer">
+  <span>RimWorld Internals &mdash; Wissen Sync</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TickManager &amp; Game Loop — RW Internals</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="back-link" href="../001-room-temperature-equalization-en.html">&larr; Back to query</a>
+
+<div class="header">
+  <div class="meta">
+    <span>Namespace: Verse</span>
+  </div>
+  <h1>TickManager &amp; Game Loop</h1>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#1</span>
+  <span class="entry-title">TickManagerUpdate</span>
+  <span class="entry-file">Verse/TickManager.cs:318-355</span>
+  <p class="entry-desc">Frame loop: Unity calls Update(), TickManager converts deltaTime to ticks. As many ticks as needed per frame, max ~45ms budget before the frame ends.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#2</span>
+  <span class="entry-title">DoSingleTick</span>
+  <span class="entry-file">Verse/TickManager.cs:357-499</span>
+  <p class="entry-desc"><span class="tag tag-mp">Important</span> &mdash; 22 steps in fixed order:
+    1. TicksGame++ &rarr;
+    2. Storyteller &rarr;
+    3. World.Tick &rarr;
+    4. MapTickList(Normal) &rarr;
+    5. MapTickList(Rare) &rarr;
+    6. MapTickList(Long) &rarr;
+    7. DateNotifier &rarr;
+    8. Scenario &rarr;
+    9. Autosaver &rarr;
+    10. Factions &rarr;
+    11. DesignationManager &rarr;
+    12. MapConditionManager &rarr;
+    13. WildPlantSpawner &rarr;
+    14. SteadyEnvironmentEffects &rarr;
+    15. MapTemperature &rarr;
+    16. WeatherManager &rarr;
+    17. ResourceCounter &rarr;
+    18. MapPathGrid &rarr;
+    19. RegionDirtyer &rarr;
+    20. GameEnder &rarr;
+    21. DangerWatcher &rarr;
+    22. Components.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#3</span>
+  <span class="entry-title">TickList Bucket System</span>
+  <span class="entry-file">Verse/TickList.cs:1-127</span>
+  <p class="entry-desc">Three TickLists: Normal (every tick), Rare (every 250), Long (every 2000). Things are hash-distributed into buckets so not all rare things run on the same tick.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#4</span>
+  <span class="entry-title">TickerType &amp; TimeSpeed</span>
+  <span class="entry-file">Verse/TickerType.cs</span>
+  <p class="entry-desc">TickerType: Normal = 1 (every tick), Rare = 250, Long = 2000. TimeSpeed: Paused/Normal/Fast/Superfast/Ultrafast.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#5</span>
+  <span class="entry-title">TickRateMultiplier</span>
+  <span class="entry-file">Verse/TickManager.cs:74-114</span>
+  <p class="entry-desc">Superfast is dynamic: 6x with colonists on map, 12x without colonists, 18x with forcedNormalSpeed=false. Ultrafast = 150x.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#6</span>
+  <span class="entry-title">TimeSlower</span>
+  <span class="entry-file">Verse/TimeSlower.cs:1-31</span>
+  <p class="entry-desc">Event brake: On important events (raid, damage) SignalForceNormalSpeedShort() is called, blocking Superfast/Ultrafast for 800 ticks.</p>
+</div>
+
+<div class="footer">
+  <span>RimWorld Internals &mdash; Knowledge Sync</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+</div>
+
+</body>
+</html>
