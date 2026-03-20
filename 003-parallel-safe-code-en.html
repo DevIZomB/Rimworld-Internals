@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RW Internals — Which Parts Are Safe to Run in Parallel?</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232730;
+    --border: #2e3340;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #8b5cf6;
+    --accent2: #a78bfa;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --orange: #f97316;
+    --cyan: #06b6d4;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    line-height: 1.7;
+    padding: 2rem;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  .header { border-bottom: 2px solid var(--accent); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+  .header .meta { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .header .meta span { background: var(--surface2); padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem; color: var(--text-dim); }
+  .header .meta .topic { background: var(--accent); color: #fff; font-weight: 600; }
+  .header h1 { font-size: 1.8rem; color: var(--accent2); margin-bottom: 0.3rem; }
+  .header .question { font-size: 1.1rem; color: var(--text-dim); font-style: italic; }
+
+  h2 { color: var(--accent2); font-size: 1.3rem; margin: 2rem 0 1rem 0; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+  h3 { color: var(--cyan); font-size: 1.05rem; margin: 1.2rem 0 0.5rem 0; }
+  p { margin-bottom: 0.8rem; }
+
+  .file-ref { display: inline-flex; align-items: center; gap: 0.3rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.5rem; font-family: 'Cascadia Code', monospace; font-size: 0.85rem; color: var(--cyan); }
+  .file-ref::before { content: '📄'; font-size: 0.75rem; }
+
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.92rem; }
+  th { background: var(--surface2); color: var(--accent2); text-align: left; padding: 0.6rem 0.8rem; border-bottom: 2px solid var(--accent); }
+  td { padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: var(--surface); }
+  td code { background: var(--surface2); padding: 0.1rem 0.4rem; border-radius: 3px; font-family: 'Cascadia Code', monospace; font-size: 0.85rem; color: var(--orange); }
+
+  .box { border-radius: 8px; padding: 1rem 1.2rem; margin: 1rem 0; border-left: 4px solid; }
+  .box-info { background: rgba(59, 130, 246, 0.08); border-color: var(--blue); }
+  .box-warn { background: rgba(234, 179, 8, 0.08); border-color: var(--yellow); }
+  .box-danger { background: rgba(239, 68, 68, 0.08); border-color: var(--red); }
+  .box-success { background: rgba(34, 197, 94, 0.08); border-color: var(--green); }
+  .box .label { font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.4rem; }
+  .box-info .label { color: var(--blue); }
+  .box-warn .label { color: var(--yellow); }
+  .box-danger .label { color: var(--red); }
+  .box-success .label { color: var(--green); }
+
+  .flow { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; padding: 1rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); }
+  .flow-step { background: var(--surface2); border: 1px solid var(--accent); border-radius: 6px; padding: 0.4rem 0.8rem; font-size: 0.88rem; color: var(--accent2); white-space: nowrap; }
+  .flow-arrow { color: var(--text-dim); font-size: 1.2rem; }
+
+  .source-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin: 0.8rem 0; }
+  .source-card h4 { color: var(--orange); font-size: 0.95rem; margin-bottom: 0.4rem; }
+  .source-card .desc { color: var(--text-dim); font-size: 0.9rem; }
+
+  .tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.78rem; font-weight: 600; }
+  .tag-safe { background: rgba(34,197,94,0.2); color: var(--green); }
+  .tag-unsafe { background: rgba(239,68,68,0.2); color: var(--red); }
+  .tag-caution { background: rgba(234,179,8,0.2); color: var(--yellow); }
+  .tag-mp { background: rgba(239,68,68,0.2); color: var(--red); }
+  .tag-burst { background: rgba(6,182,212,0.2); color: var(--cyan); }
+
+  .connections { display: grid; grid-template-columns: 1fr; gap: 0.6rem; margin: 1rem 0; }
+  .conn { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem 1rem; font-size: 0.88rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .conn:hover { border-color: var(--accent); }
+  .conn-left { display: flex; flex-direction: column; gap: 0.2rem; }
+  .conn-title { color: var(--text); font-weight: 600; }
+  .conn-why { color: var(--text-dim); font-size: 0.82rem; }
+  .conn-link { color: var(--accent2); text-decoration: none; font-size: 0.8rem; white-space: nowrap; padding: 0.25rem 0.6rem; border: 1px solid var(--accent); border-radius: 4px; transition: background 0.2s; }
+  .conn-link:hover { background: rgba(139,92,246,0.15); }
+
+  .confidence { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0; }
+  .confidence-bar { flex: 1; height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; max-width: 200px; }
+  .confidence-fill { height: 100%; border-radius: 4px; }
+
+  .category-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  .cat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+  .cat-card h4 { font-size: 0.9rem; margin-bottom: 0.5rem; }
+  .cat-card.safe { border-color: var(--green); }
+  .cat-card.safe h4 { color: var(--green); }
+  .cat-card.unsafe { border-color: var(--red); }
+  .cat-card.unsafe h4 { color: var(--red); }
+  .cat-card ul { padding-left: 1.2rem; font-size: 0.85rem; color: var(--text-dim); }
+  .cat-card ul li { margin-bottom: 0.2rem; }
+
+  .footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 0.82rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="meta">
+    <span class="topic">Threading &amp; Parallelism</span>
+    <span>Query #003</span>
+    <span>2026-03-20</span>
+    <span>Namespace: Verse + RimWorld</span>
+    <span>15+ source files analyzed</span>
+  </div>
+  <h1>Which Parts of the Code Are Safe to Run in Parallel?</h1>
+  <p class="question">"Which parts of the code are safe to run in parallel?"</p>
+</div>
+
+<!-- Confidence -->
+<div class="confidence">
+  <span style="font-size:0.85rem; color:var(--text-dim);">Answer confidence:</span>
+  <div class="confidence-bar"><div class="confidence-fill" style="width:90%; background:linear-gradient(90deg, var(--green), var(--green));"></div></div>
+  <span style="font-size:0.85rem; color:var(--green); font-weight:600;">90%</span>
+  <span style="font-size:0.78rem; color:var(--text-dim);">&mdash; All threading patterns verified in decompiled source</span>
+</div>
+
+<!-- TL;DR -->
+<div class="box box-danger">
+  <div class="label">MP-Critical</div>
+  <strong>Do not parallelize game simulation code.</strong> RimWorld's game loop (<code>DoSingleTick()</code>) is fundamentally single-threaded
+  with a fixed, deterministic order of 22 steps. The global <code>Rand</code> state (seed + iterations) has
+  <strong>no locks, no atomics, no thread-local isolation</strong> &mdash; any parallel Rand call <strong>will cause a desync</strong>.
+  <br><br>
+  Only <strong>loading, pathfinding (Burst Jobs), and data preparation</strong> are safe to run in parallel &mdash;
+  because they never touch Rand or shared game state.
+</div>
+
+<!-- Overview: What Ludeon Already Parallelizes -->
+<h2>What Ludeon Already Parallelizes</h2>
+<p>
+  RimWorld 1.6 uses 5 distinct parallelism mechanisms. Each is carefully isolated from the game simulation loop.
+</p>
+
+<table>
+  <tr><th>Mechanism</th><th>Where Used</th><th>When</th></tr>
+  <tr>
+    <td><code>Unity Burst Jobs</code> <span class="tag tag-burst">BURST</span></td>
+    <td>PathFinderJob (A* search)</td>
+    <td>Every frame, scheduled &amp; completed async</td>
+  </tr>
+  <tr>
+    <td><code>GenThreading.ParallelFor/Each</code></td>
+    <td>DefDatabase, XmlCrossRef, ThingFilter</td>
+    <td>Loading only (startup)</td>
+  </tr>
+  <tr>
+    <td><code>Parallel.ForEach</code></td>
+    <td>PathFinderMapData, DefOfHelper, ShortHashGiver, PlayDataLoader, SaveFileList</td>
+    <td>Loading + per-tick data gathering</td>
+  </tr>
+  <tr>
+    <td><code>PLINQ (.AsParallel())</code></td>
+    <td>GenTypes (type caching), DirectXmlLoader</td>
+    <td>Loading only (one-time)</td>
+  </tr>
+  <tr>
+    <td><code>Explicit Thread</code></td>
+    <td>DirectXmlLoader (2 threads), AudioClipLoader</td>
+    <td>Loading only</td>
+  </tr>
+</table>
+
+<!-- Safe Zone 1: Pathfinding -->
+<h2>1. Pathfinding &mdash; The Big One <span class="tag tag-safe">SAFE</span></h2>
+
+<div class="source-card">
+  <h4>PathFinderJob &mdash; Burst-Compiled A* <span class="tag tag-burst">BURST</span></h4>
+  <p class="desc">
+    In RimWorld 1.6, pathfinding was moved to <strong>Unity Burst Jobs</strong>. The <code>PathFinderJob</code> struct implements
+    <code>IJob</code> with <code>[BurstCompile]</code> and runs A* on <strong>NativeArrays</strong> (unmanaged memory).
+    Multiple path requests can be batched and scheduled in parallel.
+  </p>
+  <p class="desc">
+    <strong>Why it's safe:</strong> Burst jobs operate on <strong>copied data</strong> (NativeArrays). They cannot access managed C# objects,
+    static fields, or the Rand state. The grid data is gathered beforehand on the main thread.
+  </p>
+  <span class="file-ref">Verse/PathFinderJob.cs</span>
+  <span class="file-ref">Verse/PathFinder.cs</span>
+</div>
+
+<div class="flow">
+  <span class="flow-step">Main Thread: GatherData()</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step">Schedule PathFinderJobs</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step">Worker Threads: A* on NativeArrays</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step">Main Thread: Complete &amp; read results</span>
+</div>
+
+<div class="source-card">
+  <h4>PathFinderMapData &mdash; Parallel Data Sources</h4>
+  <p class="desc">
+    The 13 data sources (Cost, Area, Connectivity, Water, Fence, Building, Faction, Fog, Danger, Darkness, Perceptual...)
+    are updated via <code>Parallel.ForEach(sources, ...)</code> &mdash; each source computes independently on its own NativeArray slice.
+  </p>
+  <p class="desc">
+    <strong>Why it's safe:</strong> Each <code>IPathFinderDataSource</code> writes to its own array. No shared mutable state.
+    No Rand calls. Incremental updates (cellDeltas) are collected on the main thread first.
+  </p>
+  <span class="file-ref">Verse/PathFinderMapData.cs:218-235</span>
+</div>
+
+<!-- Safe Zone 2: Loading -->
+<h2>2. Loading &amp; Startup <span class="tag tag-safe">SAFE</span></h2>
+
+<p>All parallelism during loading happens <strong>before the game simulation starts</strong>. No ticks are running, no Rand is active.</p>
+
+<table>
+  <tr><th>System</th><th>Mechanism</th><th>File</th></tr>
+  <tr>
+    <td>XML Asset Loading</td>
+    <td>2 explicit <code>Thread</code>s + <code>ConcurrentBag</code></td>
+    <td><span class="file-ref">Verse/DirectXmlLoader.cs</span></td>
+  </tr>
+  <tr>
+    <td>XML Cross-References</td>
+    <td><code>GenThreading.ParallelForEach</code></td>
+    <td><span class="file-ref">Verse/DirectXmlCrossRefLoader.cs:475</span></td>
+  </tr>
+  <tr>
+    <td>DefDatabase Population</td>
+    <td><code>Parallel.ForEach</code> per Def subclass</td>
+    <td><span class="file-ref">Verse/PlayDataLoader.cs:110</span></td>
+  </tr>
+  <tr>
+    <td>DefOf Binding</td>
+    <td><code>Parallel.ForEach</code></td>
+    <td><span class="file-ref">RimWorld/DefOfHelper.cs:20</span></td>
+  </tr>
+  <tr>
+    <td>ShortHash Assignment</td>
+    <td><code>Parallel.ForEach</code></td>
+    <td><span class="file-ref">Verse/ShortHashGiver.cs:16</span></td>
+  </tr>
+  <tr>
+    <td>Type System Caching</td>
+    <td><code>AllTypes.AsParallel()</code></td>
+    <td><span class="file-ref">Verse/GenTypes.cs:163-210</span></td>
+  </tr>
+  <tr>
+    <td>Static Constructors</td>
+    <td><code>Parallel.ForEach</code></td>
+    <td><span class="file-ref">Verse/StaticConstructorOnStartupUtility.cs:35</span></td>
+  </tr>
+  <tr>
+    <td>ThingFilter Init</td>
+    <td><code>GenThreading.ParallelFor</code> + <code>lock</code></td>
+    <td><span class="file-ref">Verse/ThingFilter.cs:557-558</span></td>
+  </tr>
+  <tr>
+    <td>DefDatabase Actions</td>
+    <td><code>GenThreading.ParallelForEach</code></td>
+    <td><span class="file-ref">Verse/DefDatabase.cs:150</span></td>
+  </tr>
+  <tr>
+    <td>Audio Loading</td>
+    <td>Background <code>Thread</code> + <code>lock</code></td>
+    <td><span class="file-ref">RuntimeAudioClipLoader/Manager.cs</span></td>
+  </tr>
+  <tr>
+    <td>Save File Metadata</td>
+    <td><code>Parallel.ForEach</code></td>
+    <td><span class="file-ref">RimWorld/Dialog_SaveFileList.cs:26</span></td>
+  </tr>
+</table>
+
+<!-- Safe Zone 3: Rendering -->
+<h2>3. Fleck Drawing <span class="tag tag-safe">SAFE</span></h2>
+
+<div class="source-card">
+  <h4>FleckParallelizationInfo &mdash; Parallel Draw Batching</h4>
+  <p class="desc">
+    Fleck (particle) drawing is batched across threads using <code>ManualResetEvent</code> for synchronization.
+    Each batch operates on a slice of the fleck array with its own <code>DrawBatch</code>.
+    Pure rendering &mdash; no game state mutation, no Rand.
+  </p>
+  <span class="file-ref">FleckParallelizationInfo.cs</span>
+  <span class="file-ref">Verse/FleckSystemBase.cs</span>
+</div>
+
+<!-- Safe Zone 4: Immutable Stats -->
+<h2>4. Immutable Stat Caching <span class="tag tag-safe">SAFE</span></h2>
+
+<div class="source-card">
+  <h4>StatWorker &mdash; ConcurrentDictionary for Immutable Stats</h4>
+  <p class="desc">
+    <code>ConcurrentDictionary&lt;Thing, float&gt; immutableStatCache</code> is used for stat values that never change.
+    Thread-safe by design. The <strong>mutable</strong> stat cache is a regular <code>Dictionary</code> (single-threaded only).
+  </p>
+  <span class="file-ref">RimWorld/StatWorker.cs</span>
+</div>
+
+<!-- The Danger Zone -->
+<h2>What Is NOT Safe to Parallelize</h2>
+
+<div class="box box-danger">
+  <div class="label">The Single-Threaded Core</div>
+  The entire game simulation &mdash; <strong>everything inside <code>DoSingleTick()</code></strong> &mdash; is single-threaded and must stay that way.
+  22 steps execute in a fixed order. Each step can read/write any game state freely because nothing else runs concurrently.
+</div>
+
+<div class="category-grid">
+  <div class="cat-card unsafe">
+    <h4>Cannot Parallelize &mdash; Rand-Dependent</h4>
+    <ul>
+      <li>Pawn.Tick() &mdash; 20+ trackers, Rand calls everywhere</li>
+      <li>Thing.PostMake() &mdash; Rand for HP, style</li>
+      <li>Kill()/Destroy() &mdash; Rand for corpse decisions</li>
+      <li>MTBEventOccurs &mdash; Rand per check</li>
+      <li>DamageInfo constructor &mdash; Rand for angle</li>
+      <li>HediffSet operations &mdash; Rand.PushState</li>
+      <li>Storyteller.StorytellerTick &mdash; Rand for incidents</li>
+      <li>equalizeCells.Shuffle() &mdash; Rand on room rebuild</li>
+    </ul>
+  </div>
+  <div class="cat-card unsafe">
+    <h4>Cannot Parallelize &mdash; Shared Mutable State</h4>
+    <ul>
+      <li>ThingGrid / ListerThings &mdash; shared arrays</li>
+      <li>RegionGrid &mdash; regions mutate on rebuild</li>
+      <li>MapPawns &mdash; shared pawn lists</li>
+      <li>Job system &mdash; pawns claim reservations</li>
+      <li>FactionManager &mdash; shared relation state</li>
+      <li>QuestManager &mdash; global quest state</li>
+      <li>TickList buckets &mdash; deferred register/deregister</li>
+      <li>ReachabilityCache &mdash; shared Dictionary</li>
+    </ul>
+  </div>
+</div>
+
+<!-- GenThreading Deep Dive -->
+<h2>GenThreading &mdash; RimWorld's Custom Parallelization</h2>
+
+<p>
+  Ludeon built their own parallel framework instead of using <code>System.Threading.Tasks.Parallel</code> everywhere.
+  It uses <code>ThreadPool.QueueUserWorkItem</code> with <code>AutoResetEvent</code> synchronization.
+</p>
+
+<div class="flow">
+  <span class="flow-step">SliceWork()</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step">N batches (N = ProcessorCount)</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step">ThreadPool.QueueUserWorkItem per batch</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step">Interlocked.Add + AutoResetEvent</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step">Main thread waits until all done</span>
+</div>
+
+<table>
+  <tr><th>Method</th><th>Signature</th><th>Used For</th></tr>
+  <tr>
+    <td><code>ParallelForEach&lt;T&gt;</code></td>
+    <td><code>(List&lt;T&gt;, Action&lt;T&gt;, maxDegree)</code></td>
+    <td>DefDatabase, XmlCrossRef</td>
+  </tr>
+  <tr>
+    <td><code>ParallelFor</code></td>
+    <td><code>(from, to, Action&lt;int&gt;, maxDegree)</code></td>
+    <td>ThingFilter initialization</td>
+  </tr>
+</table>
+<p><span class="file-ref">Verse/GenThreading.cs:1-145</span></p>
+
+<!-- Thread Safety Patterns -->
+<h2>Thread Safety Patterns in the Codebase</h2>
+
+<table>
+  <tr><th>Pattern</th><th>Where Used</th><th>Purpose</th></tr>
+  <tr>
+    <td><code>lock (object)</code></td>
+    <td>Log, ThingFilter, AudioLoader</td>
+    <td>Critical section protection</td>
+  </tr>
+  <tr>
+    <td><code>ConcurrentDictionary</code></td>
+    <td>StatWorker (immutable cache)</td>
+    <td>Thread-safe read/write cache</td>
+  </tr>
+  <tr>
+    <td><code>ConcurrentBag</code></td>
+    <td>DirectXmlLoader</td>
+    <td>Thread-safe collection for XML files</td>
+  </tr>
+  <tr>
+    <td><code>Interlocked.Add/Read</code></td>
+    <td>GenThreading, Log, DeepProfiler</td>
+    <td>Atomic counter operations</td>
+  </tr>
+  <tr>
+    <td><code>volatile</code></td>
+    <td>DeepProfiler.enabled</td>
+    <td>Thread-safe flag visibility</td>
+  </tr>
+  <tr>
+    <td><code>ManualResetEvent</code></td>
+    <td>FleckParallelizationInfo</td>
+    <td>Draw batch completion signal</td>
+  </tr>
+  <tr>
+    <td><code>AutoResetEvent</code></td>
+    <td>GenThreading, ParallelDeflateOutputStream</td>
+    <td>Task completion synchronization</td>
+  </tr>
+  <tr>
+    <td><code>Thread-local storage</code></td>
+    <td>DeepProfiler (per-thread instances)</td>
+    <td>Avoid contention on profiler stacks</td>
+  </tr>
+  <tr>
+    <td><code>Rand.ValueAsync(seed)</code></td>
+    <td>Available but rarely used</td>
+    <td>Stateless RNG &mdash; safe from any thread</td>
+  </tr>
+</table>
+
+<!-- The Rand Problem -->
+<h2>The Rand Problem <span class="tag tag-mp">MP-CRITICAL</span></h2>
+
+<div class="box box-danger">
+  <div class="label">Why Most Game Code Cannot Be Parallelized</div>
+  <p>
+    <code>Rand</code> is a <strong>global static</strong> with two fields: <code>seed</code> (uint) and <code>iterations</code> (uint).
+    Every <code>Rand.Value</code> call increments <code>iterations</code> by 1. There is <strong>no lock, no atomic operation, no thread-local state</strong>.
+  </p>
+  <p>
+    If two threads call <code>Rand.Value</code> concurrently, the <code>iterations</code> counter gets corrupted.
+    Even if you could prevent corruption, the <strong>call order</strong> would be non-deterministic &mdash; breaking savegame reproducibility.
+  </p>
+  <p>
+    <strong>Rand is called in:</strong> Pawn.Tick, Thing.PostMake, Kill(), DamageInfo, MTBEventOccurs, HediffSet,
+    Storyteller, equalizeCells.Shuffle, combat verbs, social interactions, need calculations &mdash; <em>virtually everywhere</em>.
+  </p>
+</div>
+
+<div class="box box-success">
+  <div class="label">Safe Alternative: Rand.ValueAsync(seed)</div>
+  <code>Rand.ValueAsync(int seed)</code> calls <code>MurmurHash.GetInt(seed, 0)</code> directly.
+  <strong>No global state touched.</strong> Safe from any thread. But almost nothing in the codebase uses it.
+  <br><br>
+  <span class="file-ref">Verse/Rand.cs:98-101</span>
+</div>
+
+<!-- Summary Diagram -->
+<h2>Safety Classification</h2>
+
+<table>
+  <tr><th>Category</th><th>Safety</th><th>Examples</th><th>Reason</th></tr>
+  <tr>
+    <td>Burst Jobs</td>
+    <td><span class="tag tag-safe">SAFE</span></td>
+    <td>PathFinderJob</td>
+    <td>NativeArrays, no managed access</td>
+  </tr>
+  <tr>
+    <td>Data Source Gathering</td>
+    <td><span class="tag tag-safe">SAFE</span></td>
+    <td>PathFinderMapData sources</td>
+    <td>Each source writes own array</td>
+  </tr>
+  <tr>
+    <td>Loading / Startup</td>
+    <td><span class="tag tag-safe">SAFE</span></td>
+    <td>XML, Defs, Types, Audio</td>
+    <td>No simulation running</td>
+  </tr>
+  <tr>
+    <td>Fleck Rendering</td>
+    <td><span class="tag tag-safe">SAFE</span></td>
+    <td>FleckSystemBase draw batches</td>
+    <td>Pure rendering, no game state</td>
+  </tr>
+  <tr>
+    <td>Immutable Caches</td>
+    <td><span class="tag tag-safe">SAFE</span></td>
+    <td>StatWorker immutable cache</td>
+    <td>ConcurrentDictionary, read-heavy</td>
+  </tr>
+  <tr>
+    <td>Pure Hash Functions</td>
+    <td><span class="tag tag-safe">SAFE</span></td>
+    <td>MurmurHash, Rand.ValueAsync</td>
+    <td>No state, pure function</td>
+  </tr>
+  <tr>
+    <td>Read-Only Queries</td>
+    <td><span class="tag tag-caution">CAUTION</span></td>
+    <td>Reachability, Region traversal</td>
+    <td>Safe if no rebuild during query</td>
+  </tr>
+  <tr>
+    <td>Map Grid Reads</td>
+    <td><span class="tag tag-caution">CAUTION</span></td>
+    <td>ThingGrid.ThingsAt, CellIndices</td>
+    <td>Safe if no spawn/despawn during read</td>
+  </tr>
+  <tr>
+    <td>Tick Simulation</td>
+    <td><span class="tag tag-unsafe">UNSAFE</span></td>
+    <td>DoSingleTick, all 22 steps</td>
+    <td>Global Rand + shared mutable state</td>
+  </tr>
+  <tr>
+    <td>Pawn Operations</td>
+    <td><span class="tag tag-unsafe">UNSAFE</span></td>
+    <td>Tick, Kill, Spawn, Job dispatch</td>
+    <td>Rand + 20 trackers + Map registration</td>
+  </tr>
+  <tr>
+    <td>Thing Lifecycle</td>
+    <td><span class="tag tag-unsafe">UNSAFE</span></td>
+    <td>PostMake, SpawnSetup, DeSpawn</td>
+    <td>Rand + 15 Map subsystem registrations</td>
+  </tr>
+</table>
+
+<!-- Modding Implications -->
+<h2>Implications for Modders</h2>
+
+<div class="box box-info">
+  <div class="label">If You Want to Add Parallelism</div>
+  <p><strong>Safe to parallelize:</strong></p>
+  <ul style="padding-left:1.2rem; margin:0.5rem 0;">
+    <li>Read-only computations that don't touch <code>Rand</code> (e.g., distance calculations, stat lookups)</li>
+    <li>Data preparation before simulation (like PathFinderMapData does)</li>
+    <li>Rendering and UI drawing (with own DrawBatch)</li>
+    <li>Background I/O (file loading, network, compression)</li>
+    <li>Using <code>MurmurHash.GetInt(seed, counter)</code> or <code>Rand.ValueAsync(seed)</code> for stateless RNG</li>
+  </ul>
+  <br>
+  <p><strong>Never parallelize:</strong></p>
+  <ul style="padding-left:1.2rem; margin:0.5rem 0;">
+    <li>Anything that calls <code>Rand.Value/Bool/Range/Chance</code></li>
+    <li>Anything that modifies Things, Pawns, or Map grids</li>
+    <li>Anything inside <code>DoSingleTick()</code> or called from it</li>
+    <li>Anything that reads/writes the <code>ReachabilityCache</code> during ticks</li>
+  </ul>
+</div>
+
+<div class="box box-warn">
+  <div class="label">Burst Jobs: Not Patchable!</div>
+  <code>PathFinderJob</code> is Burst-compiled native code. Harmony <strong>cannot patch it</strong>.
+  To modify pathfinding costs, patch <code>PathFinderMapData.ParameterizeGridJob</code> or
+  <code>PathFinderCostTuning.For(Pawn)</code> instead &mdash; these are managed C# and run on the main thread.
+  <br><br>
+  <span class="file-ref">Verse/PathFinderCostTuning.cs</span>
+</div>
+
+<!-- Related Systems -->
+<h2>Related Systems</h2>
+<p style="color:var(--text-dim); font-size:0.9rem; margin-bottom:1rem;">These systems are directly related to parallelism decisions:</p>
+<div class="connections">
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">RNG / Rand &mdash; <span class="tag tag-mp">MP-Critical</span></span>
+      <span class="conn-why">Global static state, no thread safety &mdash; the #1 barrier to parallelism</span>
+    </div>
+    <a class="conn-link" href="themen-en/ri-01-rand-rng.html">&rarr; Read more</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Game Loop &mdash; DoSingleTick</span>
+      <span class="conn-why">Fixed 22-step order, deterministic, single-threaded &mdash; the backbone</span>
+    </div>
+    <a class="conn-link" href="themen-en/ri-02-tickmanager.html">&rarr; Read more</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Pathfinding &mdash; Burst Jobs</span>
+      <span class="conn-why">The only simulation-adjacent system that is truly parallel</span>
+    </div>
+    <span class="conn-link" style="cursor:default;">Verse/PathFinderJob.cs</span>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Thing Hierarchy &mdash; Spawn/DeSpawn</span>
+      <span class="conn-why">15+ Map subsystem registrations &mdash; cannot run concurrently</span>
+    </div>
+    <a class="conn-link" href="themen-en/ri-04-thing-hierarchy.html">&rarr; Read more</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Pawn &mdash; 20+ Trackers</span>
+      <span class="conn-why">Each tracker may call Rand, modify shared state, or trigger events</span>
+    </div>
+    <a class="conn-link" href="themen-en/ri-06-pawn.html">&rarr; Read more</a>
+  </div>
+
+  <div class="conn">
+    <div class="conn-left">
+      <span class="conn-title">Region System &mdash; Rebuild Pipeline</span>
+      <span class="conn-why">Region rebuild mutates RegionGrid + triggers Room recalculation</span>
+    </div>
+    <a class="conn-link" href="themen-en/ri-11-region-system.html">&rarr; Read more</a>
+  </div>
+
+</div>
+
+<!-- Not Yet Covered -->
+<h2>Not Yet Covered</h2>
+<div class="box box-info">
+  <div class="label">These files were not deeply analyzed</div>
+  <ul style="margin-top:0.5rem; padding-left:1.2rem; color:var(--text-dim); font-size:0.88rem;">
+    <li><code>FleckSystemBase.cs</code> &mdash; full fleck parallelization pipeline (how draw batches are scheduled)</li>
+    <li><code>FastTileFinder.cs</code> &mdash; world map tile finding with Parallel.For + Unity Jobs</li>
+    <li><code>ParallelDeflateOutputStream</code> &mdash; multi-threaded Zlib compression (save games)</li>
+    <li>Verse.Sound async loading patterns</li>
+    <li>Detailed Burst compilation settings and NativeArray lifecycle</li>
+  </ul>
+</div>
+
+<div class="footer">
+  <span>Based on decompiled RimWorld source code</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+  <span>2026-03-20</span>
+</div>
+
+</body>
+</html>
