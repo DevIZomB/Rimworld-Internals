@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Need-System (Outdoors/Indoors) &mdash; RW Internals</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="back-link" href="../002-room-temperatur-equalization-v2.html">&larr; Zur&uuml;ck zur Anfrage</a>
+
+<div class="header">
+  <div class="meta">
+    <span class="topic-id">RI-22</span>
+    <span class="namespace">Namespace: RimWorld</span>
+  </div>
+  <h1>Need_Outdoors &amp; Need_Indoors</h1>
+  <p class="subtitle">Frischluft- und Drinnen-Bed&uuml;rfnisse &mdash; positionsbasierte Delta-Berechnung</p>
+</div>
+
+<div class="box box-info">
+  <div class="label">Temperatur-Verbindung</div>
+  Beide Needs h&auml;ngen von <code>UsesOutdoorTemperature</code> und <code>RoofDef</code> ab &mdash;
+  dieselben Properties die das Room-Temperatur-System steuern.
+</div>
+
+<div class="entry">
+  <span class="entry-id">#1</span>
+  <span class="entry-title">Need_Outdoors</span>
+  <span class="entry-file">RimWorld/Need_Outdoors.cs:1-144</span>
+  <p class="entry-desc">Frischluft-Bed&uuml;rfnis. Delta wird rein positionsbasiert berechnet &mdash; kein Rand involviert.</p>
+  <table>
+    <tr><th>Position</th><th>Delta pro Tick</th></tr>
+    <tr><td>Outdoor + NoRoof</td><td><code>+8.0</code></td></tr>
+    <tr><td>Outdoor + ThinRoof</td><td><code>+5.0</code> (gesch&auml;tzt, reduziert)</td></tr>
+    <tr><td>Indoor + NoRoof</td><td><code>+3.0</code></td></tr>
+    <tr><td>Indoor + ThinRoof (Minimum: 0.2)</td><td><code>-0.32</code></td></tr>
+    <tr><td>Indoor + ThickRoof</td><td><code>-0.45</code></td></tr>
+  </table>
+  <p class="entry-desc"><strong>InBed-Modifier:</strong> Wenn Delta negativ und Pawn im Bett &rarr; <code>&times;0.2</code> (langsamerer Verfall beim Schlafen).</p>
+  <p class="entry-modding"><code>SetPlantDefToGrow</code> &uuml;ber Harmony patchbar. Delta-Werte sind Felder, nicht Konstanten.</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#2</span>
+  <span class="entry-title">6 Schweregrad-Kategorien</span>
+  <p class="entry-desc">
+    <strong>Free</strong> (100-80%) &rarr; <strong>Satisfied</strong> (80-60%) &rarr; <strong>Want</strong> (60-40%) &rarr;
+    <strong>Need</strong> (40-20%) &rarr; <strong>CabinFeverSevere</strong> (20-5%) &rarr; <strong>Entombed</strong> (5-0%)
+  </p>
+  <p class="entry-desc">Niedrige Werte verursachen MentalBreak-Risiko (Wandering, Tantrum).</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#3</span>
+  <span class="entry-title">Need_Indoors</span>
+  <span class="entry-file">RimWorld/Need_Indoors.cs:1-109</span>
+  <p class="entry-desc">Gegenteil von Need_Outdoors f&uuml;r Pawns mit <code>PrefersIndoors</code>-Trait.
+  Steigt bei Indoor + ThickRoof/ThinRoof, f&auml;llt bei Outdoor-Aufenthalt.
+  <strong>Gegenseitig exklusiv</strong> &mdash; ein Pawn hat entweder Need_Outdoors ODER Need_Indoors, nie beides.</p>
+  <p class="entry-desc">Deaktiviert wenn <code>PrefersOutdoors</code> aktiv ist (und umgekehrt).</p>
+</div>
+
+<div class="entry">
+  <span class="entry-id">#4</span>
+  <span class="entry-title">Verbindung zum Room-System</span>
+  <p class="entry-desc">
+    <strong>Schl&uuml;ssel-Properties:</strong><br>
+    &bull; <code>Room.UsesOutdoorTemperature</code> &mdash; &ge;25% kein Dach ODER TouchesMapEdge<br>
+    &bull; <code>Room.PsychologicallyOutdoors</code> &mdash; &ge;300 offene Dachzellen ODER (MapEdge + &ge;50% offen)<br>
+    &bull; <code>RoofDef</code> (NoRoof / ThinRoof / ThickRoof) bestimmt den konkreten Delta-Wert<br>
+    &bull; <code>GlowGrid</code> / <code>PsychGlow</code> beeinflusst beide Needs zus&auml;tzlich
+  </p>
+  <p class="entry-connections">Querverbindung: RI-21 (Room/Temperature), RI-06 (Pawn), RI-14 (Health)</p>
+</div>
+
+<div class="box box-warn">
+  <div class="label">MP-Hinweis</div>
+  Need_Outdoors/Indoors selbst verbrauchen <strong>keinen Rand</strong>. Aber:
+  <code>Need_Rest</code> nutzt <code>Rand.MTBEventOccurs</code> und <code>Need_Food</code> nutzt <code>Rand.ValueSeeded</code> &mdash;
+  andere Needs im selben NeedsTracker sind MP-kritisch!
+</div>
+
+<div class="footer">
+  <span>RimWorld Internals &mdash; Wissen Sync</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+</div>
+
+</body>
+</html>
