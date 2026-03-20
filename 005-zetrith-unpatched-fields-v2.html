@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RW Internals — MP-Critical Fields Zetrith Doesn't Patch (v2)</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232730;
+    --border: #2e3340;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #8b5cf6;
+    --accent2: #a78bfa;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --orange: #f97316;
+    --cyan: #06b6d4;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    line-height: 1.7;
+    padding: 2rem;
+    max-width: 1020px;
+    margin: 0 auto;
+  }
+
+  .header { border-bottom: 2px solid var(--accent); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+  .header .meta { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .header .meta span { background: var(--surface2); padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem; color: var(--text-dim); }
+  .header .meta .topic { background: var(--accent); color: #fff; font-weight: 600; }
+  .header h1 { font-size: 1.8rem; color: var(--accent2); margin-bottom: 0.3rem; }
+  .header .question { font-size: 1.05rem; color: var(--text-dim); font-style: italic; }
+
+  h2 { color: var(--accent2); font-size: 1.3rem; margin: 2.5rem 0 1rem 0; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+  h3 { color: var(--cyan); font-size: 1.05rem; margin: 1.2rem 0 0.5rem 0; }
+  p { margin-bottom: 0.8rem; }
+
+  .file-ref { display: inline-flex; align-items: center; gap: 0.3rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.5rem; font-family: 'Cascadia Code', monospace; font-size: 0.85rem; color: var(--cyan); margin: 0.15rem 0; }
+  .file-ref::before { content: '\1F4C4'; font-size: 0.75rem; }
+
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.92rem; }
+  th { background: var(--surface2); color: var(--accent2); text-align: left; padding: 0.6rem 0.8rem; border-bottom: 2px solid var(--accent); }
+  td { padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:hover td { background: var(--surface); }
+  td code, p code { background: var(--surface2); padding: 0.1rem 0.4rem; border-radius: 3px; font-family: 'Cascadia Code', monospace; font-size: 0.85rem; color: var(--orange); }
+
+  .box { border-radius: 8px; padding: 1rem 1.2rem; margin: 1rem 0; border-left: 4px solid; }
+  .box-info { background: rgba(59, 130, 246, 0.08); border-color: var(--blue); }
+  .box-warn { background: rgba(234, 179, 8, 0.08); border-color: var(--yellow); }
+  .box-danger { background: rgba(239, 68, 68, 0.08); border-color: var(--red); }
+  .box-success { background: rgba(34, 197, 94, 0.08); border-color: var(--green); }
+  .box .label { font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.4rem; }
+  .box-info .label { color: var(--blue); }
+  .box-warn .label { color: var(--yellow); }
+  .box-danger .label { color: var(--red); }
+  .box-success .label { color: var(--green); }
+
+  .tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.78rem; font-weight: 600; }
+  .tag-practical { background: rgba(239,68,68,0.2); color: var(--red); }
+  .tag-theoretical { background: rgba(139,92,246,0.2); color: var(--accent2); }
+  .tag-patched { background: rgba(34,197,94,0.2); color: var(--green); }
+  .tag-risk-high { background: rgba(239,68,68,0.2); color: var(--red); }
+  .tag-risk-med { background: rgba(234,179,8,0.2); color: var(--yellow); }
+  .tag-risk-low { background: rgba(59,130,246,0.2); color: var(--blue); }
+
+  .confidence { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0; }
+  .confidence-bar { flex: 1; height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; max-width: 200px; }
+  .confidence-fill { height: 100%; border-radius: 4px; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; margin: 1.5rem 0; }
+  .stat-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center; }
+  .stat-box .num { font-size: 1.8rem; font-weight: 700; }
+  .stat-box .lbl { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.2rem; }
+
+  .gap-entry { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin: 0.8rem 0; }
+  .gap-entry .gap-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.4rem; }
+  .gap-entry .gap-title { color: var(--text); font-weight: 600; font-size: 0.95rem; }
+  .gap-entry .gap-desc { color: var(--text-dim); font-size: 0.88rem; }
+  .gap-entry .gap-impact { color: var(--orange); font-size: 0.85rem; margin-top: 0.3rem; }
+
+  .fix-box { background: rgba(6,182,212,0.06); border: 1px solid rgba(6,182,212,0.25); border-radius: 6px; padding: 0.7rem 1rem; margin-top: 0.5rem; }
+  .fix-box .fix-label { color: var(--cyan); font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.3rem; }
+  .fix-box pre { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 0.6rem 0.8rem; overflow-x: auto; font-family: 'Cascadia Code', monospace; font-size: 0.82rem; color: var(--text); line-height: 1.5; margin-top: 0.3rem; }
+  .fix-box .fix-note { color: var(--text-dim); font-size: 0.82rem; margin-top: 0.3rem; }
+  .fix-box .fix-reasoning { background: rgba(139,92,246,0.06); border: 1px solid rgba(139,92,246,0.2); border-radius: 4px; padding: 0.5rem 0.7rem; margin-top: 0.4rem; font-size: 0.82rem; color: var(--text-dim); }
+  .fix-box .fix-reasoning strong { color: var(--accent2); }
+  .test-box { background: rgba(234,179,8,0.06); border: 1px solid rgba(234,179,8,0.25); border-radius: 4px; padding: 0.5rem 0.7rem; margin-top: 0.4rem; font-size: 0.82rem; color: var(--text-dim); }
+  .test-box .test-label { color: var(--yellow); font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.3rem; }
+  .test-box ol { padding-left: 1.2rem; margin: 0.3rem 0; }
+  .test-box ol li { margin-bottom: 0.2rem; }
+  .test-box .test-expected { color: var(--orange); font-size: 0.8rem; margin-top: 0.3rem; display: block; }
+  .fix-box .fix-reasoning .evidence { color: var(--green); font-size: 0.8rem; margin-top: 0.3rem; display: block; }
+
+  .flow { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; padding: 1rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); }
+  .flow-step { background: var(--surface2); border: 1px solid var(--accent); border-radius: 6px; padding: 0.4rem 0.8rem; font-size: 0.88rem; color: var(--accent2); white-space: nowrap; }
+  .flow-arrow { color: var(--text-dim); font-size: 1.2rem; }
+
+  .category-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  .cat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+  .cat-card h4 { font-size: 0.9rem; margin-bottom: 0.5rem; }
+  .cat-card.patched { border-color: var(--green); }
+  .cat-card.patched h4 { color: var(--green); }
+  .cat-card ul { padding-left: 1.2rem; font-size: 0.85rem; color: var(--text-dim); }
+  .cat-card ul li { margin-bottom: 0.2rem; }
+
+  .footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 0.82rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="meta">
+    <span class="topic">Multiplayer Sync Gaps v2</span>
+    <span>Query #005</span>
+    <span>2026-03-20</span>
+    <span>Namespace: Verse + RimWorld</span>
+    <span>200+ findings cross-referenced</span>
+  </div>
+  <h1>MP-Critical Fields Zetrith Doesn't Patch (v2)</h1>
+  <p class="question">"Which multiplayer-critical fields and code paths are NOT covered by Zetrith's Multiplayer mod? Separate practical from theoretical desyncs, and suggest fixes."</p>
+</div>
+
+<div class="confidence">
+  <span style="font-size:0.85rem; color:var(--text-dim);">Answer confidence:</span>
+  <div class="confidence-bar"><div class="confidence-fill" style="width:85%; background:linear-gradient(90deg, var(--green), var(--yellow));"></div></div>
+  <span style="font-size:0.85rem; color:var(--yellow); font-weight:600;">85%</span>
+  <span style="font-size:0.78rem; color:var(--text-dim);">&mdash; Based on Zetrith source + 200+ decompiled findings. 20% codebase coverage.</span>
+</div>
+
+<!-- TL;DR -->
+<div class="box box-danger">
+  <div class="label">Summary</div>
+  This v2 analysis separates <strong>practical desyncs</strong> (can happen during normal gameplay)
+  from <strong>theoretical desyncs</strong> (require extremely unlikely conditions).
+  Each gap now includes a <strong>concrete Harmony fix suggestion</strong>.
+  <br><br>
+  <strong>Practical gaps:</strong> 12 &mdash; will cause desyncs during normal play if state drifts even slightly.<br>
+  <strong>Theoretical gaps:</strong> 18+ &mdash; technically possible but require unusual conditions (extreme colonies, edge-case timing, specific DLC features).
+</div>
+
+<div class="stat-grid">
+  <div class="stat-box">
+    <div class="num" style="color:var(--green);">~550</div>
+    <div class="lbl">Zetrith Sync Points<br>(Fields+Methods+Delegates+Patches)</div>
+  </div>
+  <div class="stat-box">
+    <div class="num" style="color:var(--red);">12</div>
+    <div class="lbl">Practical Gaps<br>(real desync risk)</div>
+  </div>
+  <div class="stat-box">
+    <div class="num" style="color:var(--accent2);">18+</div>
+    <div class="lbl">Theoretical Gaps<br>(unlikely conditions)</div>
+  </div>
+  <div class="stat-box">
+    <div class="num" style="color:var(--cyan);">30</div>
+    <div class="lbl">Fix Suggestions<br>Included</div>
+  </div>
+</div>
+
+<!-- ========================= DISCLAIMER ========================= -->
+<div class="box box-warn">
+  <div class="label">About the Fix Suggestions</div>
+  <p>
+    Every fix in this document is <strong>logically derived from existing patterns</strong> in Zetrith's own source code
+    and Ludeon's vanilla code. For each fix, the reasoning section shows the <strong>exact source line</strong> in Zetrith's
+    codebase where the same pattern is already used successfully for a structurally identical problem.
+  </p>
+  <p>
+    <strong>These fixes have NOT been compiled or tested.</strong> Method signatures may need adjustment.
+    Confidence level: ~90% that the pattern is correct, ~10% risk of edge cases (wrong signature,
+    unexpected side effect, Rand call that is actually gameplay-relevant).
+    Treat as <strong>starting points with documented reasoning</strong>, not production-ready patches.
+  </p>
+</div>
+
+<!-- ========================= HOW TO TEST ========================= -->
+<div class="box box-success">
+  <div class="label">How to Test These Fixes</div>
+  <p>Zetrith's MP mod has a built-in <strong>desync detection system</strong> that compares <code>Rand.iterations</code> and game state hashes between clients every tick. Each gap below includes a specific <strong>"How to Trigger"</strong> scenario. The general testing workflow:</p>
+  <ol style="padding-left:1.4rem; margin:0.6rem 0; font-size:0.9rem;">
+    <li><strong>Run the trigger scenario without the fix</strong> &mdash; if the gap is real, the desync report shows <code>Rand.iterations</code> divergence.</li>
+    <li><strong>Apply the fix, run the same scenario</strong> &mdash; if the desync disappears, the fix works.</li>
+    <li><strong>Verify no side effects</strong> &mdash; gameplay should be unchanged (trees still drop leaves, buildings still fail, etc.).</li>
+  </ol>
+  <p style="margin-top:0.5rem;">
+    <strong>Quick single-player validation:</strong> Log <code>Rand.iterations</code> before and after the patched method. If unchanged after PushState/PopState, the isolation works &mdash; zero global Rand consumed.
+  </p>
+</div>
+
+<!-- ========================= HOW TO READ ========================= -->
+<div class="box box-info">
+  <div class="label">How to Read This Document</div>
+  <p>
+    <span class="tag tag-practical">PRACTICAL</span> = Can desync during normal gameplay. These should be fixed.<br>
+    <span class="tag tag-theoretical">THEORETICAL</span> = Only desyncs under extreme/unlikely conditions. Low priority, but documented for completeness.<br>
+    Every gap includes a <strong style="color:var(--cyan);">FIX</strong> section with a concrete Harmony patch approach.
+  </p>
+</div>
+
+<!-- ========================= WHAT ZETRITH COVERS ========================= -->
+<h2>What Zetrith Already Covers <span class="tag tag-patched">REFERENCE</span></h2>
+<div class="category-grid">
+  <div class="cat-card patched">
+    <h4>SyncFields (UI Settings) &mdash; ~70</h4>
+    <ul>
+      <li>Pawn settings (medCare, selfTend, hostility, etc.)</li>
+      <li>PlaySettings (autoHome, autoRebuild, 11 care defaults)</li>
+      <li>Bill production (paused, repeatMode, quality, skills, etc.)</li>
+      <li>DrugPolicy (7 fields per drug entry)</li>
+      <li>Storyteller (def, difficulty) &mdash; host-only</li>
+      <li>Gene gizmos, Activity, Refuelable, Mech controls</li>
+      <li>AutoSlaughter, ThingFilter, Study, Entity containment</li>
+    </ul>
+  </div>
+  <div class="cat-card patched">
+    <h4>Determinism Patches &mdash; ~40</h4>
+    <ul>
+      <li><code>PawnTweener</code> &mdash; root position during ticks</li>
+      <li><code>Zone.Cells / Plan.Cells</code> &mdash; shuffle only during ticks</li>
+      <li><code>GenSpawn.Rot4.Random</code> &mdash; seeded by thingIDNumber</li>
+      <li><code>GrammarResolver / NameGenerator</code> &mdash; PushState</li>
+      <li><code>PawnGraphics</code> &mdash; PushState(thingIDNumber)</li>
+      <li><code>MoteMaker.MakeStaticMote</code> &mdash; deterministic mote spawn</li>
+      <li><code>SituationalThoughts</code> &mdash; block recalc in interface</li>
+      <li><code>StatWorker / PawnCapacities</code> &mdash; cache isolation</li>
+      <li><code>MapBrightness</code> &mdash; deltaTime &rarr; fixed 1/60</li>
+      <li><code>UndercaveRockCollapse</code> &mdash; PushState isolation</li>
+      <li><code>ApparelSort</code> &mdash; thingIDNumber tiebreaker</li>
+      <li><code>EmergeFromWater</code> &mdash; Find.CurrentMap bug fix</li>
+    </ul>
+  </div>
+</div>
+
+<!-- =================================================================== -->
+<!--                    SECTION 1: PRACTICAL GAPS                        -->
+<!-- =================================================================== -->
+<h2 style="border-bottom-color:var(--red);">Practical Gaps &mdash; Will Cause Desyncs <span class="tag tag-practical">PRACTICAL</span></h2>
+<p>These gaps affect normal gameplay scenarios. A desync can occur without any unusual colony setup.</p>
+
+<!-- GAP P1 -->
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">P1 &mdash; Plant.TickLong: Leaf Motes Consume Global Rand</span>
+    <span><span class="tag tag-practical">PRACTICAL</span> <span class="tag tag-risk-high">HIGH</span></span>
+  </div>
+  <p class="gap-desc">
+    Plants with <code>dropLeaves=true</code> call <code>Rand.InsideUnitCircleVec3</code>, <code>Rand.Value</code>,
+    and <code>Rand.Range</code> directly in <code>TickLong()</code> for leaf particles.
+    <strong>Not through MoteMaker</strong>, not wrapped in PushState.
+    ~3 Rand calls per tree per TickLong (every 2000 ticks). A colony with 50 trees = 150 unprotected Rand calls.
+  </p>
+  <p class="gap-impact"><strong>Triggers when:</strong> Any colony with trees (very common). If one client has a tree destroyed by fire that the other doesn't, Rand diverges permanently.</p>
+  <span class="file-ref">RimWorld/Plant.cs (TickLong, dropLeaves section)</span>
+  <div class="fix-box">
+    <div class="fix-label">Suggested Fix</div>
+    <pre>[HarmonyPatch(typeof(Plant), nameof(Plant.TickLong))]
+static class PlantLeafMotesPatch
+{
+    static void Prefix(Plant __instance)
+    {
+        if (Multiplayer.Client != null &amp;&amp; __instance.def.plant.dropLeaves)
+            Rand.PushState(__instance.thingIDNumber);
+    }
+
+    static void Finalizer(Plant __instance)
+    {
+        if (Multiplayer.Client != null &amp;&amp; __instance.def.plant.dropLeaves)
+            Rand.PopState();
+    }
+}</pre>
+    <p class="fix-note">Isolates all Rand calls inside TickLong per plant. The thingIDNumber seed ensures deterministic-per-plant results without affecting the global Rand sequence.</p>
+    <div class="fix-reasoning">
+      <strong>Why this should work:</strong> <code>Rand.PushState(seed)</code> saves the current global Rand state to a stack, then sets a new seed. All Rand calls between Push and Pop use the new seed. <code>PopState()</code> restores the exact previous state &mdash; as if the calls in between never happened. The global <code>iterations</code> counter is unchanged.
+      <br><br>
+      <strong>How I arrived at this fix:</strong> Zetrith uses the exact same pattern in <code>Seeds.cs:192-210</code> for <code>PawnRenderer.SetAllGraphicsDirty</code> &mdash; another case where visual code consumes global Rand during ticks. They wrap it in <code>PushState(Gen.HashCombineInt(pawn.thingIDNumber, ConstantRandSeed))</code>. The plant leaf mote problem is structurally identical: visual Rand in tick code, no gameplay effect.
+      <span class="evidence">Evidence: Zetrith Seeds.cs line 200 &mdash; SeedPawnGraphics uses PushState(thingIDNumber) for the same class of problem.</span>
+    </div>
+    <div class="test-box">
+      <div class="test-label">How to Trigger This Desync</div>
+      <ol>
+        <li>Start an MP game on a map with a <strong>temperate forest</strong> biome (many trees with dropLeaves).</li>
+        <li>Use dev mode: spawn ~50 extra oak/poplar trees in a cluster.</li>
+        <li>On <strong>one client only</strong>, use dev mode to <strong>destroy 5&ndash;10 trees</strong> (Destroy tool, not the other client).</li>
+        <li>Let the game run for 2000+ ticks (one TickLong cycle).</li>
+      </ol>
+      <span class="test-expected">Expected result: Desync report shows Rand.iterations divergence after the next TickLong cycle, because the destroyed trees no longer consume their 3 Rand calls on one client but still do on the other.</span>
+    </div>
+  </div>
+</div>
+
+<!-- GAP P2 -->
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">P2 &mdash; MentalState_BabyCry: Tear Visuals in Tick Code</span>
+    <span><span class="tag tag-practical">PRACTICAL</span> <span class="tag tag-risk-high">HIGH</span></span>
+  </div>
+  <p class="gap-desc">
+    Baby crying consumes 4&ndash;6 Rand calls per tear cycle (25&ndash;40 ticks):
+    <code>randAngle.RandomInRange</code>, <code>randScale.RandomInRange</code>,
+    <code>TicksBetweenTears.RandomInRange</code>, <code>Rand.Value &times; 180</code>.
+    All in <code>MentalStateTick()</code> &mdash; gameplay tick, not draw.
+  </p>
+  <p class="gap-impact"><strong>Triggers when:</strong> Any colony with babies (Biotech DLC). Multiple crying babies = dozens of unprotected Rand calls per cycle.</p>
+  <span class="file-ref">Verse.AI/MentalState_BabyCry.cs:34-56</span>
+  <div class="fix-box">
+    <div class="fix-label">Suggested Fix</div>
+    <pre>[HarmonyPatch(typeof(MentalState_BabyCry),
+    nameof(MentalState_BabyCry.MentalStateTick))]
+static class BabyCryRandPatch
+{
+    static void Prefix(MentalState_BabyCry __instance)
+    {
+        if (Multiplayer.Client != null)
+            Rand.PushState(__instance.pawn.thingIDNumber);
+    }
+
+    static void Finalizer(MentalState_BabyCry __instance)
+    {
+        if (Multiplayer.Client != null)
+            Rand.PopState();
+    }
+}</pre>
+    <div class="fix-reasoning">
+      <strong>Why this should work:</strong> Same PushState/PopState pattern. The baby's <code>thingIDNumber</code> is deterministic (assigned by <code>UniqueIDsManager</code>, synced via Zetrith's UniqueIds.cs patch). The tear visuals don't affect gameplay &mdash; they only create motes. Isolating them removes their Rand consumption from the global stream entirely.
+      <br><br>
+      <strong>How I arrived at this fix:</strong> The problem is identical to P1 (Plant leaf motes): visual effects calling Rand directly in <code>MentalStateTick()</code> instead of through <code>MoteMaker</code>. Zetrith already patches <code>MoteMaker.MakeStaticMote</code> (Determinism.cs:601-636) to be deterministic, but BabyCry bypasses MoteMaker and calls Rand directly. The fix applies the same isolation Zetrith uses for MoteMaker, but one level up.
+      <span class="evidence">Evidence: Zetrith Determinism.cs line 601 &mdash; FixNullMotes patches MoteMaker for determinism. BabyCry bypasses this by calling Rand directly.</span>
+    </div>
+    <div class="test-box">
+      <div class="test-label">How to Trigger This Desync</div>
+      <ol>
+        <li>Start an MP game with <strong>Biotech DLC</strong> enabled.</li>
+        <li>Use dev mode to spawn 3&ndash;5 baby pawns (age 0&ndash;1).</li>
+        <li>Give all babies low mood (dev mode: add "Observed Corpse" thoughts repeatedly) to trigger BabyCry mental state.</li>
+        <li>On <strong>one client only</strong>, use dev mode to <strong>end the mental state</strong> on one baby (<code>Debug actions &gt; End mental state</code>).</li>
+        <li>Let run for 100+ ticks.</li>
+      </ol>
+      <span class="test-expected">Expected result: One client has 4 babies consuming ~20 Rand calls per tear cycle, the other has 5 babies consuming ~25. After one tear cycle (~30 ticks), Rand.iterations diverges by ~5 per cycle, accumulating rapidly.</span>
+    </div>
+  </div>
+</div>
+
+<!-- GAP P3 -->
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">P3 &mdash; SnowGrid: Mesh Dirty Throttle Uses Global Rand</span>
+    <span><span class="tag tag-practical">PRACTICAL</span> <span class="tag tag-risk-high">HIGH</span></span>
+  </div>
+  <p class="gap-desc">
+    <code>Rand.Value &lt; 0.0125f</code> throttles mesh updates on small snow depth changes (&lt;0.15).
+    During snowfall, hundreds of cells trigger this per tick. Not in PushState.
+  </p>
+  <p class="gap-impact"><strong>Triggers when:</strong> Snowfall on any map (extremely common in temperate/cold biomes). Hundreds of Rand calls per tick during snow events.</p>
+  <span class="file-ref">Verse/SnowGrid.cs</span>
+  <div class="fix-box">
+    <div class="fix-label">Suggested Fix</div>
+    <pre>[HarmonyPatch(typeof(SnowGrid),
+    "CheckVisualOrPathCostChange")]
+static class SnowGridRandPatch
+{
+    // Replace Rand.Value with deterministic hash
+    static IEnumerable&lt;CodeInstruction&gt; Transpiler(
+        IEnumerable&lt;CodeInstruction&gt; insts)
+    {
+        var randValue = AccessTools.PropertyGetter(
+            typeof(Rand), nameof(Rand.Value));
+
+        foreach (var ci in insts)
+        {
+            if (ci.Calls(randValue))
+            {
+                // Replace: Rand.Value &lt; 0.0125
+                // With: (cellIndex.GetHashCode() % 80 == 0)
+                yield return new CodeInstruction(
+                    OpCodes.Ldarg_1); // cell index
+                yield return new CodeInstruction(OpCodes.Call,
+                    AccessTools.Method(typeof(SnowGridRandPatch),
+                        nameof(DeterministicThrottle)));
+                continue;
+            }
+            yield return ci;
+        }
+    }
+
+    static float DeterministicThrottle(int cellIndex)
+    {
+        // Returns 0.0 (below threshold) ~1/80 of the time
+        return (cellIndex.GetHashCode() % 80 == 0) ? 0f : 1f;
+    }
+}</pre>
+    <p class="fix-note">Replaces probabilistic throttle with a deterministic hash-based one. Same ~1.25% trigger rate, zero Rand consumption.</p>
+    <div class="fix-reasoning">
+      <strong>Why this should work:</strong> The original code uses <code>Rand.Value &lt; 0.0125</code> purely as a performance throttle &mdash; it decides whether to update a mesh, not any gameplay state. Replacing it with <code>cellIndex % 80 == 0</code> gives the same ~1.25% trigger rate but uses zero Rand calls. The mesh update is visual-only; which specific cells get updated first doesn't affect simulation.
+      <br><br>
+      <strong>How I arrived at this fix:</strong> This is a different pattern from PushState. PushState would work too, but it's wasteful &mdash; hundreds of cells trigger this per tick during snowfall, each needing a Push+Pop. A hash replacement is cheaper and cleaner. Ludeon themselves use hash-based patterns elsewhere (e.g., <code>IsHashIntervalTick</code> for throttling tick checks). This follows that same principle: deterministic throttle via hash instead of probabilistic throttle via Rand.
+      <span class="evidence">Evidence: Verse/GenTicks.cs &mdash; IsHashIntervalTick uses thingIDNumber hash for deterministic throttling. Same concept applied to cell-based throttling.</span>
+    </div>
+    <div class="test-box">
+      <div class="test-label">How to Trigger This Desync</div>
+      <ol>
+        <li>Start an MP game on a map with <strong>cold/temperate biome</strong> that gets snowfall.</li>
+        <li>Wait for a snowfall event (or use dev mode: <code>Set weather &gt; SnowHard</code>).</li>
+        <li>Speed up to 3x and let snow accumulate for 1&ndash;2 in-game hours.</li>
+        <li>The hundreds of small snow-depth changes per tick each call <code>Rand.Value</code> for mesh throttling.</li>
+      </ol>
+      <span class="test-expected">Expected result: If any prior state difference exists (even tiny), the Rand.Value calls during snowfall amplify the divergence rapidly. Monitor Rand.iterations &mdash; during heavy snowfall they should increase by 100+ per tick from this source alone. Any prior 1-iteration offset becomes a cascade.</span>
+    </div>
+  </div>
+</div>
+
+<!-- GAP P4 -->
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">P4 &mdash; LordJob_Joinable_Party: Constructor Rand Before PushState</span>
+    <span><span class="tag tag-practical">PRACTICAL</span> <span class="tag tag-risk-high">HIGH</span></span>
+  </div>
+  <p class="gap-desc">
+    <code>Rand.RangeInclusive(5000, 15000)</code> is called in the <strong>constructor</strong> to set party duration.
+    This executes <em>before</em> Lord.SetJob's <code>PushState(loadID * 193)</code>.
+    The Rand call hits the unprotected global state.
+  </p>
+  <p class="gap-impact"><strong>Triggers when:</strong> Any party event (common in colonies with 5+ colonists). If triggered at different moments in the Rand sequence = permanent desync.</p>
+  <span class="file-ref">Verse.AI.Group/LordJob_Joinable_Party.cs (constructor)</span>
+  <div class="fix-box">
+    <div class="fix-label">Suggested Fix</div>
+    <pre>[HarmonyPatch(typeof(LordJob_Joinable_Party),
+    MethodType.Constructor,
+    typeof(IntVec3), typeof(Pawn), typeof(GatheringDef))]
+static class PartyConstructorRandPatch
+{
+    static void Prefix(Pawn organizer)
+    {
+        if (Multiplayer.Client != null)
+            Rand.PushState(
+                Gen.HashCombineInt(organizer.thingIDNumber,
+                    Find.TickManager.TicksGame));
+    }
+
+    static void Finalizer()
+    {
+        if (Multiplayer.Client != null)
+            Rand.PopState();
+    }
+}</pre>
+    <p class="fix-note">Seeds the constructor Rand with organizer ID + tick. Deterministic and isolated from global state.</p>
+    <div class="fix-reasoning">
+      <strong>Why this should work:</strong> The constructor runs <em>before</em> <code>Lord.SetJob</code> applies its own <code>PushState(loadID * 193)</code>. So the Rand call in the constructor hits the unprotected global state. By wrapping the constructor in PushState with a seed derived from the organizer pawn's ID and the current tick, the Rand call becomes deterministic and isolated. Both values (thingIDNumber, TicksGame) are guaranteed to be identical across all clients in Zetrith's lockstep system.
+      <br><br>
+      <strong>How I arrived at this fix:</strong> Zetrith's own Lord system uses <code>PushState(loadID * 193)</code> inside <code>Lord.SetJob</code> to isolate <code>CreateGraph()</code> Rand calls. But the constructor runs before SetJob. This is the same gap pattern that Zetrith solved for <code>CaravanEnterMapUtility.Enter</code> in Seeds.cs:76-93 &mdash; code that runs before the normal seed isolation, so they add an explicit PushState before it.
+      <span class="evidence">Evidence: Zetrith Seeds.cs line 76 &mdash; SeedCaravanEnter patches code that runs before normal seed isolation, using PushState(map.uniqueID ^ ConstantRandSeed).</span>
+    </div>
+    <div class="test-box">
+      <div class="test-label">How to Trigger This Desync</div>
+      <ol>
+        <li>Start an MP game with 5+ colonists (enough for party eligibility).</li>
+        <li>Ensure colonists have high mood (recreation fulfilled, no debuffs).</li>
+        <li>Wait for a <strong>party event</strong> to trigger naturally, or use dev mode: <code>Debug actions &gt; Force lord job &gt; Joinable Party</code>.</li>
+        <li>Log <code>Rand.iterations</code> before and after the party creation.</li>
+      </ol>
+      <span class="test-expected">Expected result: The constructor's Rand.RangeInclusive(5000, 15000) consumes 1 iteration from the global state BEFORE Lord.SetJob's PushState. If you force two parties in sequence, the second party's global Rand position is offset by 1 compared to what it would be if the constructor were isolated.</span>
+    </div>
+  </div>
+</div>
+
+<!-- GAP P5 -->
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">P5 &mdash; LordToil_Sappers: EscortRadius Rand per Duty Reassignment</span>
+    <span><span class="tag tag-practical">PRACTICAL</span> <span class="tag tag-risk-high">HIGH</span></span>
+  </div>
+  <p class="gap-desc">
+    <code>EscortRadiusRanged/Melee.RandomInRange</code> in <code>UpdateAllDuties</code> for every escort pawn.
+    Fires at every duty reassignment. If a pawn dies on one client &rarr; duty reset &rarr; different Rand count.
+  </p>
+  <p class="gap-impact"><strong>Triggers when:</strong> Any sapper raid with multiple pawns (common mid/late game). Pawn death during raid = immediate divergence.</p>
+  <span class="file-ref">Verse.AI.Group/LordToil_Sappers.cs</span>
+  <div class="fix-box">
+    <div class="fix-label">Suggested Fix</div>
+    <pre>[HarmonyPatch(typeof(LordToil_Sappers),
+    nameof(LordToil_Sappers.UpdateAllDuties))]
+static class SapperEscortRandPatch
+{
+    static void Prefix(LordToil_Sappers __instance)
+    {
+        if (Multiplayer.Client != null)
+            Rand.PushState(__instance.lord.loadID * 571);
+    }
+
+    static void Finalizer()
+    {
+        if (Multiplayer.Client != null)
+            Rand.PopState();
+    }
+}</pre>
+    <div class="fix-reasoning">
+      <strong>Why this should work:</strong> Same pattern as P4. <code>UpdateAllDuties</code> assigns Rand-based escort radii per pawn inside the normal tick flow. The Lord's <code>loadID</code> is deterministic (synced via Zetrith's UniqueIds patch). Multiplying by a prime (571) produces a unique seed per Lord, ensuring different LordToils get different but deterministic Rand sequences.
+      <br><br>
+      <strong>How I arrived at this fix:</strong> Zetrith uses <code>loadID * 193</code> inside <code>Lord.SetJob</code> for CreateGraph isolation. The same approach works for UpdateAllDuties &mdash; it's the same Lord, just a different entry point. I used a different prime (571) to avoid seed collision with CreateGraph's 193.
+      <span class="evidence">Evidence: Lord.SetJob uses PushState(loadID * 193) for CreateGraph. UpdateAllDuties is the same Lord but called from LordToilTick, not covered by that PushState.</span>
+    </div>
+    <div class="test-box">
+      <div class="test-label">How to Trigger This Desync</div>
+      <ol>
+        <li>Start an MP game, build a walled colony.</li>
+        <li>Use dev mode to trigger a <strong>sapper raid</strong>: <code>Debug actions &gt; Execute incident &gt; RaidEnemy</code> with strategy set to Sappers (or retry until you get one).</li>
+        <li>During the raid, on <strong>one client only</strong>, use dev mode to <strong>kill one sapper pawn</strong>.</li>
+        <li>Wait for <code>UpdateAllDuties</code> to fire (happens when duties are reassigned after pawn loss).</li>
+      </ol>
+      <span class="test-expected">Expected result: The surviving sappers get new EscortRadius values via RandomInRange. One client has N-1 pawns getting new radii, the other has N pawns. The Rand call count differs by the number of RandomInRange calls for the killed pawn's escort slot.</span>
+    </div>
+  </div>
+</div>
+
+<!-- GAP P6 -->
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">P6 &mdash; LordToil_Breaching: preferMelee Rand.Chance in Tick Flow</span>
+    <span><span class="tag tag-practical">PRACTICAL</span> <span class="tag tag-risk-high">HIGH</span></span>
+  </div>
+  <p class="gap-desc">
+    <code>Rand.Chance(0.5f)</code> in <code>UpdateAllDuties</code> when <code>breachDest</code> initializes.
+    Runs in normal tick flow. If breachDest becomes invalid at different ticks on different clients,
+    the call fires at a different Rand position.
+  </p>
+  <p class="gap-impact"><strong>Triggers when:</strong> Breaching raids (common late game). Wall destruction timing differences = different Rand position.</p>
+  <span class="file-ref">Verse.AI.Group/LordToil_Breaching.cs</span>
+  <div class="fix-box">
+    <div class="fix-label">Suggested Fix</div>
+    <pre>[HarmonyPatch(typeof(LordToil_Breaching),
+    nameof(LordToil_Breaching.UpdateAllDuties))]
+static class BreachingRandPatch
+{
+    static void Prefix(LordToil_Breaching __instance)
+    {
+        if (Multiplayer.Client != null)
+            Rand.PushState(__instance.lord.loadID * 397);
+    }
+
+    static void Finalizer()
+    {
+        if (Multiplayer.Client != null)
+            Rand.PopState();
+    }
+}</pre>
+    <div class="fix-reasoning">
+      <strong>Why this should work:</strong> Identical to P5. Same Lord, same UpdateAllDuties method, same unprotected Rand call pattern. The <code>Rand.Chance(0.5f)</code> for melee preference is a one-time decision when breachDest initializes, but it happens inside LordToilTick (normal tick flow), not inside CreateGraph (which is already PushState-protected).
+      <br><br>
+      <strong>How I arrived at this fix:</strong> I read both LordToil_Breaching and LordToil_Sappers and noticed they share the same structural problem: UpdateAllDuties called from tick flow with unprotected Rand. Zetrith's PushState in Lord.SetJob only covers CreateGraph, not runtime duty updates. Different prime (397) to avoid seed collision.
+      <span class="evidence">Evidence: Both LordToil_Sappers and LordToil_Breaching call UpdateAllDuties from LordToilTick, outside Lord.SetJob's PushState(loadID * 193) scope.</span>
+    </div>
+    <div class="test-box">
+      <div class="test-label">How to Trigger This Desync</div>
+      <ol>
+        <li>Start an MP game with a walled colony with thick walls (granite double-layer).</li>
+        <li>Use dev mode to trigger a <strong>breaching raid</strong>: <code>Execute incident &gt; RaidEnemy</code>, retry until you get breaching strategy.</li>
+        <li>Let the raiders breach. When they destroy a wall segment, <code>breachDest</code> may become invalid on the next tick.</li>
+        <li>On <strong>one client only</strong>, use dev mode to <strong>rebuild the wall segment</strong> the raiders just broke, forcing breachDest to reinitialize at a different tick.</li>
+      </ol>
+      <span class="test-expected">Expected result: The Rand.Chance(0.5f) for preferMelee fires at different ticks on each client. One client gets melee=true, the other melee=false. All duty assignments diverge from that point.</span>
+    </div>
+  </div>
+</div>
+
+<!-- GAP P7 -->
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">P7 &mdash; Pawn_FilthTracker: 3&ndash;4 Rand Calls per Cell Change</span>
+    <span><span class="tag tag-practical">PRACTICAL</span> <span class="tag tag-risk-high">HIGH</span></span>
+  </div>
+  <p class="gap-desc">
+    Every pawn movement: <code>Rand.Value &lt; 0.05</code> (drop), <code>Rand.Value &lt; 0.1</code> (pickup),
+    <code>Rand.Value &lt; filthRate&times;0.005</code> (generate), <code>Rand.Chance(0.66)</code> (terrain filth).
+    3&ndash;4 Rand calls per cell per pawn. Variable count based on conditions.
+  </p>
+  <p class="gap-impact"><strong>Triggers when:</strong> Any pawn movement (constant). 20 colonists moving = 60&ndash;80 Rand calls per cell-change event. If pawn positions drift slightly, call counts differ.</p>
+  <span class="file-ref">RimWorld/Pawn_FilthTracker.cs:86-100</span>
+  <div class="fix-box">
+    <div class="fix-label">Suggested Fix</div>
+    <pre>[HarmonyPatch(typeof(Pawn_FilthTracker),
+    nameof(Pawn_FilthTracker.Notify_EnteredNewCell))]
+static class FilthTrackerRandPatch
+{
+    static void Prefix(Pawn_FilthTracker __instance)
+    {
+        if (Multiplayer.Client != null)
+            Rand.PushState(Gen.HashCombineInt(
+                __instance.pawn.thingIDNumber,
+                __instance.pawn.Position.GetHashCode()));
+    }
+
+    static void Finalizer()
+    {
+        if (Multiplayer.Client != null)
+            Rand.PopState();
+    }
+}</pre>
+    <p class="fix-note">Seeds with pawn ID + position hash. Makes filth generation deterministic per pawn-cell combination regardless of global Rand state.</p>
+    <div class="fix-reasoning">
+      <strong>Why this should work:</strong> Filth generation is borderline visual/gameplay &mdash; filth exists as Things on the map, but whether a pawn drops filth at a specific cell has minimal gameplay impact (it affects beauty score and cleaning jobs, but not critical game logic). PushState with pawn ID + cell position creates a unique deterministic seed per pawn-per-cell. Both values are synced across clients. The 3&ndash;4 Rand calls inside are isolated from the global stream.
+      <br><br>
+      <strong>How I arrived at this fix:</strong> Pawn_FilthTracker.Notify_EnteredNewCell is called on every single cell change for every pawn &mdash; it's one of the highest-frequency Rand consumers in the game. The pattern matches Zetrith's GenSpawn.Rot4.Random fix (Seeds.cs:116-144) where they isolate a per-Thing Rand call using <code>PushState(thingIDNumber ^ ConstantRandSeed)</code>. I added position hash because the same pawn at different cells should produce different filth patterns.
+      <span class="evidence">Evidence: Zetrith Seeds.cs line 116 &mdash; GenSpawnRotatePatch isolates per-Thing Rand with PushState(thingIDNumber ^ ConstantRandSeed). FilthTracker is a per-pawn-per-cell version of the same problem.</span>
+    </div>
+    <div class="test-box">
+      <div class="test-label">How to Trigger This Desync</div>
+      <ol>
+        <li>Start an MP game with 15+ colonists on a medium map.</li>
+        <li>Set game speed to 3x and let pawns move around normally for a few in-game hours.</li>
+        <li>On <strong>one client only</strong>, use dev mode to <strong>teleport one pawn</strong> to a different location (<code>Debug actions &gt; Teleport</code>).</li>
+        <li>The teleported pawn now walks through different cells on each client, triggering different Notify_EnteredNewCell calls with different Rand consumption.</li>
+      </ol>
+      <span class="test-expected">Expected result: Each cell change = 3&ndash;4 Rand calls. If one pawn walks a different path, after 10 cells the Rand.iterations diverge by 30&ndash;40, cascading through all subsequent game logic.</span>
+    </div>
+  </div>
+</div>
+
+<!-- GAP P8 -->
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">P8 &mdash; Fire.SpawnSmokeParticles: Smoke Position Rand in Tick</span>
+    <span><span class="tag tag-practical">PRACTICAL</span> <span class="tag tag-risk-med">MEDIUM</span></span>
+  </div>
+  <p class="gap-desc">
+    Fire tick calls <code>SpawnSmokeParticles</code> with 1&ndash;2 Rand calls for positions.
+    Combined with <code>DoComplexCalcs</code> (~5 calls/150 ticks) and <code>TrySpread</code> (4 calls),
+    each fire = ~8 Rand calls per 150 ticks. 50 fires = 400+ calls.
+  </p>
+  <p class="gap-impact"><strong>Triggers when:</strong> Any fire event (raids, lightning, cooking). Fire spreading differently = cascading Rand divergence.</p>
+  <span class="file-ref">Verse/Fire.cs</span>
+  <div class="fix-box">
+    <div class="fix-label">Suggested Fix</div>
+    <pre>// Only isolate SpawnSmokeParticles (visual).
+// TrySpread and DoComplexCalcs MUST remain global
+// (they affect simulation state).
+[HarmonyPatch(typeof(Fire), "SpawnSmokeParticles")]
+static class FireSmokeRandPatch
+{
+    static void Prefix(Fire __instance)
+    {
+        if (Multiplayer.Client != null)
+            Rand.PushState(__instance.thingIDNumber);
+    }
+
+    static void Finalizer()
+    {
+        if (Multiplayer.Client != null)
+            Rand.PopState();
+    }
+}</pre>
+    <p class="fix-note">Only isolates smoke visuals. Fire spread logic (TrySpread, DoComplexCalcs) must stay in the global Rand stream since they affect game state.</p>
+    <div class="fix-reasoning">
+      <strong>Why this should work:</strong> Fire has two types of Rand calls: (1) <code>SpawnSmokeParticles</code> &mdash; purely visual, creates motes, no gameplay effect. (2) <code>TrySpread</code> and <code>DoComplexCalcs</code> &mdash; these determine if fire spreads to adjacent cells, which IS gameplay. We can only PushState around the visual part. The smoke positions don't matter for simulation; only fire spread does.
+      <br><br>
+      <strong>How I arrived at this fix:</strong> This is the same split Zetrith makes for <code>UndercaveMapComponent</code> (Determinism.cs:541-598). There, they separate the simulation-relevant MTBEventOccurs call from the visual TriggerCollapseFX call, wrapping only the visual part in PushState. Same principle: isolate visual Rand, keep simulation Rand in the global stream.
+      <span class="evidence">Evidence: Zetrith Determinism.cs line 541 &mdash; DeterministicUndercaveRockCollapse separates simulation Rand from visual effecter Rand using PushState/PopState only around the visual part.</span>
+    </div>
+    <div class="test-box">
+      <div class="test-label">How to Trigger This Desync</div>
+      <ol>
+        <li>Start an MP game, build a wooden colony or use dev mode to spawn flammable structures.</li>
+        <li>Use dev mode: <code>Tool &gt; Start fire</code> on 20&ndash;30 cells simultaneously.</li>
+        <li>Let fires burn and spread at 3x speed for several in-game hours.</li>
+        <li>On <strong>one client only</strong>, use dev mode to <strong>extinguish 5 fires</strong> while leaving them burning on the other client.</li>
+      </ol>
+      <span class="test-expected">Expected result: Each extinguished fire stops consuming ~8 Rand calls per 150 ticks on one client. After 150 ticks, Rand.iterations diverges by ~40 (5 fires &times; 8 calls). The SpawnSmokeParticles portion (~2 calls per fire) is the visual part this fix targets.</span>
+    </div>
+  </div>
+</div>
+
+<!-- GAP P9 -->
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">P9 &mdash; ConstructFinishFrame: Fail Chance Without PushState</span>
+    <span><span class="tag tag-practical">PRACTICAL</span> <span class="tag tag-risk-med">MEDIUM</span></span>
+  </div>
+  <p class="gap-desc">
+    <code>Rand.Value &lt; 1f - Pow(successChance, workDone/totalWork)</code> per build tick.
+    No PushState. Called every tick a pawn is building. A construction failure triggers
+    blueprint re-spawn with its own Rand calls &rarr; cascade.
+  </p>
+  <p class="gap-impact"><strong>Triggers when:</strong> Active building (very common). Fail divergence = blueprint respawn divergence = Rand cascade.</p>
+  <span class="file-ref">RimWorld/Frame.cs (CompleteConstruction area)</span>
+  <div class="fix-box">
+    <div class="fix-label">Suggested Fix</div>
+    <pre>[HarmonyPatch(typeof(Frame),
+    nameof(Frame.CompleteConstruction))]
+static class ConstructFailRandPatch
+{
+    static void Prefix(Frame __instance)
+    {
+        if (Multiplayer.Client != null)
+            Rand.PushState(__instance.thingIDNumber);
+    }
+
+    static void Finalizer()
+    {
+        if (Multiplayer.Client != null)
+            Rand.PopState();
+    }
+}</pre>
+    <div class="fix-reasoning">
+      <strong>Why this should work:</strong> <code>Frame.CompleteConstruction</code> uses Rand for construction fail chance and quality generation. The Frame's <code>thingIDNumber</code> is deterministic (synced via UniqueIDsManager). By seeding with it, the fail/success outcome and quality result become deterministic per frame, regardless of the global Rand position. Even if prior state has drifted, this frame's outcome is always the same.
+      <br><br>
+      <strong>How I arrived at this fix:</strong> RimWorld itself uses this exact pattern for <code>CompExplosive</code> (RimWorld/CompExplosive.cs:40-45): <code>Rand.PushState(); Rand.Seed = thingIDNumber.GetHashCode()</code> to make explosion chance deterministic per Thing. Construction fail is structurally identical &mdash; a per-Thing Rand decision that should be deterministic.
+      <span class="evidence">Evidence: RimWorld/CompExplosive.cs line 40 &mdash; Ludeon themselves use PushState(thingIDNumber) for per-Thing deterministic Rand decisions.</span>
+    </div>
+    <div class="test-box">
+      <div class="test-label">How to Trigger This Desync</div>
+      <ol>
+        <li>Start an MP game. Queue several construction jobs (walls, furniture).</li>
+        <li>Assign a pawn with <strong>low Construction skill</strong> (level 1&ndash;3) to maximize fail chance.</li>
+        <li>On <strong>one client only</strong>, use dev mode to <strong>set the pawn's Construction skill to 20</strong> mid-build.</li>
+        <li>The fail chance formula (<code>1 - Pow(successChance, workDone/total)</code>) now differs: one client has near-zero fail chance, the other has high fail chance.</li>
+      </ol>
+      <span class="test-expected">Expected result: One client's pawn fails construction (consuming Rand for the fail event + blueprint respawn), the other succeeds (consuming Rand for quality generation). Different Rand paths = permanent divergence.</span>
+    </div>
+  </div>
+</div>
+
+<!-- GAP P10 -->
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">P10 &mdash; GenLeaving.DoLeavingsFor: InRandomOrder Outside PushState</span>
+    <span><span class="tag tag-practical">PRACTICAL</span> <span class="tag tag-risk-med">MEDIUM</span></span>
+  </div>
+  <p class="gap-desc">
+    <code>InRandomOrder()</code> Fisher-Yates shuffle for leavings placement.
+    Called during Kill/Deconstruct. PushState only covers the <em>calculation</em> of killedLeavings,
+    not the <em>placement</em> shuffle. Plus <code>GenMath.RoundRandom</code> for terrain resources (1 Rand per material).
+  </p>
+  <p class="gap-impact"><strong>Triggers when:</strong> Deconstructing or destroying buildings/terrain (common). N-1 Rand calls per leaving list.</p>
+  <span class="file-ref">RimWorld/GenLeaving.cs</span>
+  <div class="fix-box">
+    <div class="fix-label">Suggested Fix</div>
+    <pre>[HarmonyPatch(typeof(GenLeaving),
+    nameof(GenLeaving.DoLeavingsFor),
+    typeof(Thing), typeof(Map), typeof(DestroyMode),
+    typeof(CellRect), typeof(Predicate&lt;IntVec3&gt;),
+    typeof(List&lt;Thing&gt;))]
+static class LeavingsShufflePatch
+{
+    static void Prefix(Thing diedThing)
+    {
+        if (Multiplayer.Client != null)
+            Rand.PushState(diedThing.thingIDNumber);
+    }
+
+    static void Finalizer()
+    {
+        if (Multiplayer.Client != null)
+            Rand.PopState();
+    }
+}</pre>
+    <div class="fix-reasoning">
+      <strong>Why this should work:</strong> The leavings placement shuffle (<code>InRandomOrder()</code>) is visual-adjacent &mdash; it determines where debris appears on the ground, but the leavings themselves are already calculated. The Thing's <code>thingIDNumber</code> ensures deterministic placement per destroyed Thing. The calculation of <em>which</em> leavings are produced is already PushState-protected by vanilla code; only the placement shuffle is unprotected.
+      <br><br>
+      <strong>How I arrived at this fix:</strong> I read GenLeaving.DoLeavingsFor and noticed the PushState/PopState in vanilla only covers <code>killedLeavings</code> calculation (what drops), not the <code>InRandomOrder()</code> shuffle (where it drops). This is a gap in vanilla's own isolation. Wrapping the whole method in PushState covers both.
+      <span class="evidence">Evidence: RimWorld/GenLeaving.cs &mdash; vanilla uses PushState for killedLeavings calculation but leaves the InRandomOrder placement shuffle unprotected.</span>
+    </div>
+    <div class="test-box">
+      <div class="test-label">How to Trigger This Desync</div>
+      <ol>
+        <li>Start an MP game with a colony that has many deconstructable buildings (stone walls, furniture).</li>
+        <li>Designate 10+ buildings for deconstruction simultaneously.</li>
+        <li>On <strong>one client only</strong>, use dev mode to <strong>destroy one of the designated buildings</strong> before a pawn reaches it (using the Destroy tool).</li>
+        <li>The Destroy path calls GenLeaving with a different leavings list than the Deconstruct path.</li>
+      </ol>
+      <span class="test-expected">Expected result: InRandomOrder shuffle on different-length leaving lists = different number of Rand calls (N-1 per list). Plus GenMath.RoundRandom per material type adds more Rand divergence.</span>
+    </div>
+  </div>
+</div>
+
+<!-- GAP P11 -->
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">P11 &mdash; Pawn_InteractionsTracker: 6+ Rand Calls per Interaction</span>
+    <span><span class="tag tag-practical">PRACTICAL</span> <span class="tag tag-risk-med">MEDIUM</span></span>
+  </div>
+  <p class="gap-desc">
+    Per social interaction: MTBEventOccurs (trigger check), workingList.Shuffle(),
+    TryRandomElementByWeight (interaction type), Rand.Value (social fight chance),
+    Rand.Chance (metalhorror check). Second-largest Rand hotspot after Storyteller.
+  </p>
+  <p class="gap-impact"><strong>Triggers when:</strong> Colonists interact socially (constant in any colony). Different pawn lists = different shuffle = different interactions.</p>
+  <span class="file-ref">RimWorld/Pawn_InteractionsTracker.cs</span>
+  <div class="fix-box">
+    <div class="fix-label">Suggested Fix</div>
+    <pre>// This one is complex - the shuffle and weighted random
+// ARE part of the simulation (they determine WHO interacts
+// with WHOM). Cannot simply PushState the whole method.
+// Instead, ensure the working list order is deterministic:
+
+[HarmonyPatch(typeof(Pawn_InteractionsTracker),
+    "TryInteractRandomly")]
+static class InteractionSortPatch
+{
+    // After the shuffle, sort by thingIDNumber as tiebreaker
+    // to ensure deterministic order across clients
+    static IEnumerable&lt;CodeInstruction&gt; Transpiler(
+        IEnumerable&lt;CodeInstruction&gt; insts)
+    {
+        // Find the Shuffle() call and insert a stable
+        // sort-by-ID after it to break shuffle ties
+        // deterministically
+        // ... (transpiler implementation)
+    }
+}</pre>
+    <p class="fix-note">Complex fix: the Rand calls here affect gameplay. The key is ensuring the candidate list is in deterministic order before the weighted random, not isolating the Rand.</p>
+    <div class="fix-reasoning">
+      <strong>Why this is different from other fixes:</strong> Unlike P1&ndash;P10, the Rand calls here <em>are</em> gameplay-relevant. Who interacts with whom affects mood, social fights, relationships, and romance. You <strong>cannot</strong> PushState this &mdash; the result must stay in the global Rand stream so all clients get the same interactions.
+      <br><br>
+      <strong>The actual problem:</strong> The <code>workingList.Shuffle()</code> reorders the candidate list before <code>TryRandomElementByWeight</code>. If the list contains the same pawns but in different order (due to MapPawns iteration order differences), the shuffle produces different results, feeding different inputs to the weighted random.
+      <br><br>
+      <strong>How I arrived at this fix:</strong> Zetrith solved a similar problem with <code>Pawn_ApparelTracker.SortWornApparelIntoDrawOrder</code> (Determinism.cs:37-46) &mdash; where a sort with equal keys produces non-deterministic order. Their fix: add <code>thingIDNumber.CompareTo</code> as a tiebreaker. The same principle applies here: sort the candidate list by thingIDNumber before the shuffle to ensure deterministic starting order.
+      <span class="evidence">Evidence: Zetrith Determinism.cs line 37 &mdash; FixApparelSort adds thingIDNumber tiebreaker to make non-deterministic sorts deterministic. Same principle for interaction candidate lists.</span>
+    </div>
+    <div class="test-box">
+      <div class="test-label">How to Trigger This Desync</div>
+      <ol>
+        <li>Start an MP game with 10+ colonists in close proximity (small barracks, shared rec room).</li>
+        <li>Set speed to 3x and let social interactions run for a few in-game days.</li>
+        <li>On <strong>one client only</strong>, use dev mode to <strong>arrest one colonist</strong> (removing them from the free colonist list).</li>
+        <li>The interaction candidate list now has different size/order on each client.</li>
+      </ol>
+      <span class="test-expected">Expected result: workingList.Shuffle() on a list of size N consumes N-1 Rand calls. With one fewer pawn on one client, the shuffle consumes 1 fewer Rand call. After just one social interaction cycle, Rand.iterations diverges. Additionally, TryRandomElementByWeight picks from a differently-weighted pool.</span>
+    </div>
+  </div>
+</div>
+
+<!-- GAP P12 -->
+<div class="gap-entry">
+  <div class="gap-header">
+    <span class="gap-title">P12 &mdash; InspirationHandler: Mood-Gated MTB + RandomElementByWeight</span>
+    <span><span class="tag tag-practical">PRACTICAL</span> <span class="tag tag-risk-med">MEDIUM</span></span>
+  </div>
+  <p class="gap-desc">
+    Every 100 ticks per pawn: mood gate (&gt;0.5), then <code>Rand.MTBEventOccurs</code> (1&ndash;2 calls),
+    on success <code>RandomElementByWeightWithFallback</code> (N+1 calls, N = available inspirations).
+    The mood gate is a hard cutoff &mdash; slightly different mood = completely different Rand behavior.
+  </p>
+  <p class="gap-impact"><strong>Triggers when:</strong> Colonists with mood above 50% (very common). Slight mood calculation differences = one client makes the Rand call, the other skips it entirely.</p>
+  <span class="file-ref">RimWorld/InspirationHandler.cs:124</span>
+  <div class="fix-box">
+    <div class="fix-label">Suggested Fix</div>
+    <pre>[HarmonyPatch(typeof(InspirationHandler),
+    "CheckStartRandomInspiration")]
+static class InspirationRandPatch
+{
+    static void Prefix(InspirationHandler __instance)
+    {
+        if (Multiplayer.Client != null)
+            Rand.PushState(Gen.HashCombineInt(
+                __instance.pawn.thingIDNumber,
+                Find.TickManager.TicksGame / 100));
+    }
+
+    static void Finalizer()
+    {
+        if (Multiplayer.Client != null)
+            Rand.PopState();
+    }
+}</pre>
+    <p class="fix-note">Seeds with pawn ID + tick bucket (100-tick intervals). Even if mood-gate differs, the global Rand is unaffected.</p>
+    <div class="fix-reasoning">
+      <strong>Why this should work:</strong> The mood gate (&gt;0.5) is a hard cutoff. If mood differs by 0.001 between clients, one client enters the MTBEventOccurs + RandomElementByWeight block and the other doesn't. With PushState, both paths consume zero from the global Rand. The pawn ID ensures deterministic results per pawn, the tick bucket (TicksGame / 100) ensures different results each check interval.
+      <br><br>
+      <strong>How I arrived at this fix:</strong> Zetrith uses this exact pattern for <code>PreceptComp_UnwillingToDo_Chance.MemberWillingToDo</code> (Seeds.cs:212-236) &mdash; another case where a UI/mood-dependent check can call Rand from different code paths. Their fix: <code>PushState(Gen.HashCombineInt(pawnId, TicksGame))</code>. The inspiration handler has the same structure: mood-gated Rand calls that may or may not execute.
+      <span class="evidence">Evidence: Zetrith Seeds.cs line 212 &mdash; SeedPreceptComp_UnwillingToDo_Chance uses PushState(pawnID ^ tick) for a mood/belief-gated Rand call. InspirationHandler is the same pattern.</span>
+    </div>
+    <div class="test-box">
+      <div class="test-label">How to Trigger This Desync</div>
+      <ol>
+        <li>Start an MP game with 5+ colonists.</li>
+        <li>On <strong>one client only</strong>, use dev mode to set one colonist's mood to exactly <strong>0.51</strong> (just above the 0.5 gate). On the other client, set the same colonist's mood to <strong>0.49</strong> (just below).</li>
+        <li>Wait for the 100-tick inspiration check cycle.</li>
+      </ol>
+      <span class="test-expected">Expected result: Client with mood 0.51 enters the MTBEventOccurs block (1&ndash;2 Rand calls), client with mood 0.49 skips it entirely (0 Rand calls). After one check cycle, Rand.iterations diverges by 1&ndash;2. If the MTB succeeds, RandomElementByWeight adds N+1 more divergent calls.</span>
+    </div>
+  </div>
+</div>
+
+
+<!-- =================================================================== -->
+<!--                    SECTION 2: THEORETICAL GAPS                      -->
+<!-- =================================================================== -->
+<h2 style="border-bottom-color:var(--accent);">Theoretical Gaps &mdash; Unlikely to Trigger <span class="tag tag-theoretical">THEORETICAL</span></h2>
+<p>These require extremely specific conditions. They are technically valid but unlikely to cause actual desyncs in normal gameplay.</p>
+
+<table>
+  <tr>
+    <th>Gap</th>
+    <th>Condition Required</th>
+    <th>Why Unlikely</th>
+    <th>Risk</th>
+    <th>Fix Approach</th>
+  </tr>
+  <tr>
+    <td><strong>Room Temperature Float Drift</strong><br><span class="file-ref" style="font-size:0.75rem;">Verse/RoomTempTracker.cs</span></td>
+    <td>Different CPU FPU rounding across clients over thousands of ticks</td>
+    <td>Same .NET runtime + same x86 hardware = identical float results. Only possible with mixed OS (Linux+Windows Mono)</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>Periodic temp snap-sync: quantize to nearest 0.01 every 2500 ticks</td>
+  </tr>
+  <tr>
+    <td><strong>Recipe Work Float Drift</strong><br><span class="file-ref" style="font-size:0.75rem;">Verse/Toils_Recipe.cs</span></td>
+    <td><code>workLeft -= speed &times; delta</code> accumulates float error differently across CPUs</td>
+    <td>Same reasoning as temperature. Would need thousands of crafting ticks to drift enough for 1-tick completion difference</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>Use integer work-ticks or snap workLeft to integer each TickRare</td>
+  </tr>
+  <tr>
+    <td><strong>Stat Capacity Lerp Precision</strong><br><span class="file-ref" style="font-size:0.75rem;">RimWorld/StatWorker.cs:384</span></td>
+    <td><code>Mathf.Lerp</code> produces different results on different Mono versions</td>
+    <td>All MP clients should be on the same game version with the same runtime</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>No fix needed unless cross-platform MP is supported</td>
+  </tr>
+  <tr>
+    <td><strong>CompPowerBattery Float Drift</strong><br><span class="file-ref" style="font-size:0.75rem;">RimWorld/CompPowerBattery.cs:67</span></td>
+    <td><code>storedEnergy</code> decremented by 5W &times; WattDaysPerTick every tick accumulates float error</td>
+    <td>Self-discharge is tiny (5W). Would need days of game-time to accumulate 0.01 difference</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>Round storedEnergy to nearest 0.1 every TickRare</td>
+  </tr>
+  <tr>
+    <td><strong>QuestGen Static State</strong><br><span class="file-ref" style="font-size:0.75rem;">RimWorld.QuestGen/QuestGen.cs</span></td>
+    <td><code>static Quest quest</code>, <code>static Slate slate</code>, <code>static bool working</code> accessed non-atomically</td>
+    <td>Quest generation is single-threaded in vanilla. Only a risk if Zetrith's async maps trigger quest gen from multiple maps simultaneously</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+    <td>Lock around QuestGen.Generate() or ensure only one map generates quests at a time</td>
+  </tr>
+  <tr>
+    <td><strong>Thing.allowDestroyNonDestroyable</strong><br><span class="file-ref" style="font-size:0.75rem;">Verse/Thing.cs</span></td>
+    <td>Two QuestPart cleanup operations modify the static bool in different order on different clients</td>
+    <td>Quest cleanup is rare and sequential. Would need two quests ending simultaneously</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>Replace static bool with a counter or thread-local</td>
+  </tr>
+  <tr>
+    <td><strong>Static tmpCollections (CellFinder etc.)</strong><br><span class="file-ref" style="font-size:0.75rem;">Various</span></td>
+    <td>Two async maps access the same <code>static List tmpXxx</code> simultaneously</td>
+    <td>Only with Zetrith async-time enabled. Vanilla single-threaded = safe. Zetrith likely handles this</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>Replace with <code>[ThreadStatic]</code> or per-map instances</td>
+  </tr>
+  <tr>
+    <td><strong>PowerNet.Shuffle + RandomElement</strong><br><span class="file-ref" style="font-size:0.75rem;">RimWorld/PowerNet.cs</span></td>
+    <td>Battery shuffle order or device restart/shutdown selection differs</td>
+    <td>Only triggers during power deficit/surplus. Requires prior state divergence in the power network</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>PushState(PowerNet.networkID) around DistributeEnergy</td>
+  </tr>
+  <tr>
+    <td><strong>Gene.TickInterval MTB</strong><br><span class="file-ref" style="font-size:0.75rem;">RimWorld/Gene.cs</span></td>
+    <td><code>Rand.MTBEventOccurs</code> every 60 ticks per gene with mentalBreakMtbDays</td>
+    <td>Part of normal tick flow. Only diverges if gene lists differ (which would mean prior desync already happened)</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>PushState(pawn.thingIDNumber ^ gene.def.shortHash)</td>
+  </tr>
+  <tr>
+    <td><strong>Gene_Clotting Auto-Tend</strong><br><span class="file-ref" style="font-size:0.75rem;">RimWorld/Gene_Clotting.cs</span></td>
+    <td><code>TendingQualityRange.RandomInRange</code> per bleeding wound, every 360 ticks</td>
+    <td>Only with Biotech pawns with specific genes. Wound count must differ between clients</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>PushState(pawn.thingIDNumber) in Tick method</td>
+  </tr>
+  <tr>
+    <td><strong>Gene_Healing Timer Reset</strong><br><span class="file-ref" style="font-size:0.75rem;">RimWorld/Gene_Healing.cs</span></td>
+    <td><code>HealingIntervalTicksRange.RandomInRange</code> on heal + PostAdd</td>
+    <td>Very rare gene. Timer reset only on actual heal events</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>PushState(pawn.thingIDNumber) before RandomInRange</td>
+  </tr>
+  <tr>
+    <td><strong>Pawn_LearningTracker</strong><br><span class="file-ref" style="font-size:0.75rem;">RimWorld/Pawn_LearningTracker.cs</span></td>
+    <td><code>Rand.Range</code> + <code>RandomElementByWeight</code> per desire rotation per child</td>
+    <td>Only with Biotech children. Requires different child count between clients</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>PushState(pawn.thingIDNumber) before desire rotation</td>
+  </tr>
+  <tr>
+    <td><strong>CompBreakdownable MTB</strong><br><span class="file-ref" style="font-size:0.75rem;">RimWorld/CompBreakdownable.cs:54</span></td>
+    <td><code>Rand.MTBEventOccurs</code> every 1041 ticks per breakdownable building</td>
+    <td>Part of normal tick flow. Only diverges if building lists differ (prior desync)</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>No fix needed if lockstep is working correctly</td>
+  </tr>
+  <tr>
+    <td><strong>CompHoldingPlatformTarget Escape Chain</strong><br><span class="file-ref" style="font-size:0.75rem;">RimWorld/CompHoldingPlatformTarget.cs</span></td>
+    <td>MTBEventOccurs + Rand.Chance per adjacent entity for chain escape</td>
+    <td>Anomaly DLC only. Requires holding platforms with entities (niche gameplay)</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+    <td>PushState(platform.thingIDNumber) around escape logic</td>
+  </tr>
+  <tr>
+    <td><strong>Missing SyncFields for newer DLC gizmos</strong><br><span class="file-ref" style="font-size:0.75rem;">Various Anomaly Comps</span></td>
+    <td>Player clicks a gizmo that modifies comp state without sync (CompBandNode, CompAtomizer, CompFleshmassHeart)</td>
+    <td>These gizmos may already be handled via SyncDelegates. Needs individual verification</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+    <td>Add to SyncFields.Init() or verify SyncDelegates coverage</td>
+  </tr>
+  <tr>
+    <td><strong>WorldObject.Print Rand.Range</strong><br><span class="file-ref" style="font-size:0.75rem;">RimWorld.Planet/WorldObject.cs</span></td>
+    <td><code>Rand.Range(0,360)</code> for draw rotation in Print()</td>
+    <td>Print() is rendering code, only called during Draw, not during Tick. Should not affect simulation</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>Verify Print() is never called from tick code</td>
+  </tr>
+  <tr>
+    <td><strong>Apparel.Notify_PawnKilled Rand</strong><br><span class="file-ref" style="font-size:0.75rem;">RimWorld/Pawn_ApparelTracker.cs:616</span></td>
+    <td><code>Rand.Range(0.15f, 0.4f)</code> per worn apparel at pawn death</td>
+    <td>Part of Kill() pipeline which runs in tick flow. Only diverges if prior state is already different</td>
+    <td><span class="tag tag-risk-low">LOW</span></td>
+    <td>PushState(pawn.thingIDNumber) in Notify_PawnKilled</td>
+  </tr>
+  <tr>
+    <td><strong>GeneUtility.GenerateXenotypeNameFromGenes</strong><br><span class="file-ref" style="font-size:0.75rem;">RimWorld/GeneUtility.cs</span></td>
+    <td>Up to 150 retries with <code>TryRandomElementByWeight</code> for name prefix/suffix</td>
+    <td>Only during xenotype creation (rare). Name collision check depends on existing names list</td>
+    <td><span class="tag tag-risk-med">MEDIUM</span></td>
+    <td>PushState with a seed before name generation</td>
+  </tr>
+</table>
+
+<!-- ========================= WHY THEORETICAL MATTERS ========================= -->
+<div class="box box-info">
+  <div class="label">Why Document Theoretical Gaps?</div>
+  <p>
+    Theoretical gaps become <strong>practical</strong> when a prior desync has already occurred.
+    Once game state diverges even slightly (e.g., from a practical gap above),
+    the theoretical gaps become <em>amplifiers</em> that accelerate the divergence.
+    Fixing the practical gaps first prevents the cascade that makes theoretical gaps trigger.
+  </p>
+  <p>
+    Think of it as: <strong>Practical gaps = root causes</strong>. <strong>Theoretical gaps = accelerators</strong>.
+    Fix the root causes first, and most theoretical gaps never fire.
+  </p>
+</div>
+
+<!-- ========================= PRIORITY MAP ========================= -->
+<h2>Priority Fix Map</h2>
+
+<div class="flow">
+  <span class="flow-step" style="border-color:var(--red);">1. Visual Rand in Ticks (P1-P3, P8)</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step" style="border-color:var(--red);">2. Constructor Rand (P4-P6)</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step" style="border-color:var(--yellow);">3. High-frequency Rand (P7, P9-P12)</span>
+  <span class="flow-arrow">&rarr;</span>
+  <span class="flow-step" style="border-color:var(--blue);">4. Theoretical (as needed)</span>
+</div>
+
+<table>
+  <tr><th>Priority</th><th>Gap</th><th>Effort</th><th>Fix Type</th></tr>
+  <tr>
+    <td style="color:var(--red); font-weight:700;">P0</td>
+    <td>P1: Plant leaf motes</td>
+    <td>Low &mdash; simple Prefix/Finalizer PushState</td>
+    <td>PushState(thingIDNumber)</td>
+  </tr>
+  <tr>
+    <td style="color:var(--red); font-weight:700;">P0</td>
+    <td>P2: BabyCry tears</td>
+    <td>Low &mdash; simple Prefix/Finalizer PushState</td>
+    <td>PushState(thingIDNumber)</td>
+  </tr>
+  <tr>
+    <td style="color:var(--red); font-weight:700;">P0</td>
+    <td>P3: SnowGrid mesh throttle</td>
+    <td>Medium &mdash; transpiler to replace Rand.Value</td>
+    <td>Hash-based deterministic throttle</td>
+  </tr>
+  <tr>
+    <td style="color:var(--red); font-weight:700;">P0</td>
+    <td>P4: Party constructor Rand</td>
+    <td>Low &mdash; constructor patch</td>
+    <td>PushState(organizer.ID &times; tick)</td>
+  </tr>
+  <tr>
+    <td style="color:var(--red); font-weight:700;">P0</td>
+    <td>P5: Sapper escort radius</td>
+    <td>Low &mdash; Prefix/Finalizer</td>
+    <td>PushState(lord.loadID)</td>
+  </tr>
+  <tr>
+    <td style="color:var(--red); font-weight:700;">P0</td>
+    <td>P6: Breaching preferMelee</td>
+    <td>Low &mdash; Prefix/Finalizer</td>
+    <td>PushState(lord.loadID)</td>
+  </tr>
+  <tr>
+    <td style="color:var(--yellow); font-weight:700;">P1</td>
+    <td>P7: FilthTracker Rand</td>
+    <td>Low &mdash; Prefix/Finalizer</td>
+    <td>PushState(pawn.ID &times; position)</td>
+  </tr>
+  <tr>
+    <td style="color:var(--yellow); font-weight:700;">P1</td>
+    <td>P8: Fire smoke</td>
+    <td>Low &mdash; only smoke method</td>
+    <td>PushState(fire.thingIDNumber)</td>
+  </tr>
+  <tr>
+    <td style="color:var(--yellow); font-weight:700;">P1</td>
+    <td>P9: Construction fail</td>
+    <td>Low &mdash; Prefix/Finalizer</td>
+    <td>PushState(frame.thingIDNumber)</td>
+  </tr>
+  <tr>
+    <td style="color:var(--yellow); font-weight:700;">P1</td>
+    <td>P10: GenLeaving shuffle</td>
+    <td>Low &mdash; Prefix/Finalizer</td>
+    <td>PushState(thing.thingIDNumber)</td>
+  </tr>
+  <tr>
+    <td style="color:var(--yellow); font-weight:700;">P1</td>
+    <td>P11: Social interactions</td>
+    <td>Medium &mdash; transpiler for list ordering</td>
+    <td>Deterministic list sort before random</td>
+  </tr>
+  <tr>
+    <td style="color:var(--yellow); font-weight:700;">P1</td>
+    <td>P12: Inspiration handler</td>
+    <td>Low &mdash; Prefix/Finalizer</td>
+    <td>PushState(pawn.ID &times; tickBucket)</td>
+  </tr>
+</table>
+
+<!-- ========================= ANALYSIS COVERAGE ========================= -->
+<h2>Analysis Coverage</h2>
+
+<div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1.2rem; margin:1rem 0;">
+  <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem;">
+    <div style="font-size:2rem; font-weight:700; color:var(--yellow);">20%</div>
+    <div>
+      <div style="font-size:0.95rem; color:var(--text);">~1,895 of ~8,650 source files analyzed</div>
+      <div style="font-size:0.82rem; color:var(--text-dim);">Based on decompiled C# source (ILSpy)</div>
+    </div>
+  </div>
+  <div style="width:100%; height:10px; background:var(--surface2); border-radius:5px; overflow:hidden; margin-bottom:1rem;">
+    <div style="width:20%; height:100%; background:linear-gradient(90deg, var(--accent), var(--yellow)); border-radius:5px;"></div>
+  </div>
+  <p style="font-size:0.88rem; color:var(--text-dim);">
+    <strong>The remaining 80% could contain additional gaps.</strong>
+    This analysis covers the most gameplay-critical namespaces (Verse core, AI, RimWorld main systems, QuestGen).
+    Less-analyzed areas: RimWorld.Planet (world map), Verse.Sound, Verse.Grammar, RimWorld.SketchGen, RimWorld.BaseGen.
+  </p>
+</div>
+
+<!-- ========================= METHODOLOGY ========================= -->
+<h2>Methodology</h2>
+
+<div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1.2rem; margin:1rem 0;">
+  <table style="font-size:0.85rem;">
+    <tr><th>Source</th><th>What Was Analyzed</th></tr>
+    <tr>
+      <td>Zetrith MP Mod Source</td>
+      <td>SyncFields.cs (70 fields), SyncMethods.cs (200+ methods), SyncDelegates.cs (200+ delegates), 32 Patch files (Determinism, Seeds, TickPatch, etc.)</td>
+    </tr>
+    <tr>
+      <td>RimWorld Internals Knowledge Base</td>
+      <td>200+ findings cataloguing every Rand call, static state mutation, and float accumulation pattern found</td>
+    </tr>
+    <tr>
+      <td>Decompiled RimWorld 1.6.4633</td>
+      <td>~1,895 files across Verse, Verse.AI, Verse.AI.Group, RimWorld, RimWorld.QuestGen namespaces</td>
+    </tr>
+  </table>
+
+  <p style="font-size:0.85rem; color:var(--text-dim); margin-top:0.8rem;">
+    <strong>Classification criteria:</strong><br>
+    <span class="tag tag-practical">PRACTICAL</span> = Triggers during normal gameplay without requiring prior state divergence. Affects common game mechanics (building, movement, weather, social, raids).<br>
+    <span class="tag tag-theoretical">THEORETICAL</span> = Requires either: (a) extremely rare game conditions, (b) prior state divergence as prerequisite, (c) specific DLC features, or (d) cross-platform float precision differences.
+  </p>
+</div>
+
+<div class="footer">
+  <span>Based on decompiled RimWorld source + Zetrith MP mod source analysis</span>
+  <span>RimWorld 1.6.4633 rev1261</span>
+  <span>2026-03-20</span>
+</div>
+
+</body>
+</html>
