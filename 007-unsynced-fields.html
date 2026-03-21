@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RimWorld 1.6 — Unsynced SIM↔UI Fields (MP Gap Analysis)</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #c9d1d9; --text-dim: #8b949e; --accent: #58a6ff; --white: #fff;
+    --critical: #f85149; --high: #f0883e; --medium: #d29922; --low: #3fb950;
+    --sim: #79c0ff; --ui: #d2a8ff; --covered: #238636; --gap: #da3633;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', -apple-system, sans-serif; line-height: 1.6; padding: 24px; max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 1.5em; color: var(--white); margin-bottom: 4px; }
+  h2 { font-size: 1.15em; color: var(--white); margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 0.95em; color: var(--accent); margin: 16px 0 8px; }
+  .subtitle { color: var(--text-dim); font-size: 0.88em; margin-bottom: 20px; }
+  code { font-family: 'Cascadia Code','Fira Code','Consolas', monospace; font-size: 0.88em; background: rgba(110,118,129,0.2); padding: 1px 5px; border-radius: 3px; }
+
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .summary-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; text-align: center; }
+  .summary-card .num { font-size: 2em; font-weight: 700; }
+  .summary-card .label { font-size: 0.8em; color: var(--text-dim); }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
+  .card h4 { color: var(--white); font-size: 0.92em; margin-bottom: 6px; }
+  .card p, .card li { font-size: 0.86em; }
+  .card ul { margin-left: 16px; }
+  .card li { margin-bottom: 4px; }
+
+  .risk { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.7em; font-weight: 700; text-transform: uppercase; }
+  .risk.critical { background: rgba(248,81,73,0.15); color: var(--critical); }
+  .risk.high { background: rgba(240,136,62,0.15); color: var(--high); }
+  .risk.medium { background: rgba(210,153,34,0.15); color: var(--medium); }
+  .risk.low { background: rgba(63,185,80,0.15); color: var(--low); }
+
+  .status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.7em; font-weight: 600; }
+  .status.covered { background: rgba(35,134,54,0.15); color: var(--covered); border: 1px solid rgba(35,134,54,0.3); }
+  .status.gap { background: rgba(218,54,51,0.15); color: var(--gap); border: 1px solid rgba(218,54,51,0.3); }
+  .status.fp { background: rgba(110,118,129,0.15); color: var(--text-dim); border: 1px solid rgba(110,118,129,0.3); }
+  .status.debug { background: rgba(210,153,34,0.12); color: var(--medium); border: 1px solid rgba(210,153,34,0.25); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.84em; margin: 8px 0; }
+  th { text-align: left; color: var(--text-dim); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 6px 8px; border-bottom: 1px solid rgba(48,54,61,0.4); vertical-align: top; }
+  tr:hover { background: rgba(255,255,255,0.02); }
+
+  .note { background: rgba(88,166,255,0.06); border: 1px solid rgba(88,166,255,0.15); border-radius: 6px; padding: 10px 14px; margin: 12px 0; font-size: 0.84em; }
+  .note.warn { background: rgba(210,153,34,0.06); border-color: rgba(210,153,34,0.15); }
+
+  .section-desc { color: var(--text-dim); font-size: 0.86em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+
+<h1>RimWorld 1.6 — MP Sync Gap Analysis</h1>
+<p class="subtitle">Cross-reference: Static field scanner (286 fields) vs. Multiplayer mod sync registrations (370+ sync points) — what's covered, what's not</p>
+
+<div class="note">
+  <strong>How this was made:</strong> An AI-powered static scanner identified 286 fields accessed from both simulation (Tick) and interface (Draw/GUI) code. These were then cross-referenced against the sync registrations in the Multiplayer mod (SyncFields.cs, SyncMethods.cs, SyncDelegates.cs) to find gaps. Analysis is AI-assisted — results should be verified at runtime.
+</div>
+
+<div class="summary-grid">
+  <div class="summary-card">
+    <div class="num" style="color:var(--white)">286</div>
+    <div class="label">Total shared fields found</div>
+  </div>
+  <div class="summary-card">
+    <div class="num" style="color:var(--covered)">~250</div>
+    <div class="label">Covered by MP mod or false positive</div>
+  </div>
+  <div class="summary-card">
+    <div class="num" style="color:var(--gap)">2</div>
+    <div class="label">Gaps (user-facing)</div>
+  </div>
+  <div class="summary-card">
+    <div class="num" style="color:var(--medium)">5</div>
+    <div class="label">Gaps (debug-only)</div>
+  </div>
+</div>
+
+<!-- ==================== GAPS ==================== -->
+<h2>Potential Sync Gaps</h2>
+<p class="section-desc">Fields where UI writes simulation state and the MP mod does not appear to sync the write path. Sorted by gameplay relevance.</p>
+
+<h3>User-Facing (Could Affect Normal Gameplay)</h3>
+
+<div class="card">
+  <h4><span class="risk medium">MEDIUM</span> <code>Designator_Plan_Add.colorDef</code></h4>
+  <p><strong>File:</strong> RimWorld/Designator_Plan_Add.cs</p>
+  <p><strong>What happens:</strong> Player selects plan color in <code>ProcessInput()</code> (UI) → color is stored → <code>DesignateSingleCell()</code> (SIM) uses it to create designations. If two players use the plan designator simultaneously with different colors, the color state could differ.</p>
+  <p><strong>Impact:</strong> Different plan colors per client. Not a simulation desync (plans don't affect gameplay), but visible inconsistency.</p>
+</div>
+
+<div class="card">
+  <h4><span class="risk medium">MEDIUM</span> <code>CompPlantable.plantCells</code> — Cancel path</h4>
+  <p><strong>File:</strong> RimWorld/CompPlantable.cs</p>
+  <p><strong>What happens:</strong> <code>BeginTargeting</code> (adding cells) IS synced via SyncDelegate. But the "Cancel All" gizmo in <code>CompGetGizmosExtra()</code> clears the list — this clear operation may not be synced.</p>
+  <p><strong>Impact:</strong> If one player cancels planting via gizmo, other clients still have cells queued → pawns get different job targets.</p>
+</div>
+
+<h3>Debug-Only (Requires Dev Mode)</h3>
+
+<div class="card">
+  <h4><span class="risk low">LOW</span> <code>CompEggLayer.eggProgress</code></h4>
+  <p><strong>File:</strong> RimWorld/CompEggLayer.cs — Debug gizmo sets <code>eggProgress = 1f</code>. Not synced, not marked <code>SetDebugOnly()</code>.</p>
+</div>
+
+<div class="card">
+  <h4><span class="risk low">LOW</span> <code>CompTerrainPump.progressTicks</code></h4>
+  <p><strong>File:</strong> RimWorld/CompTerrainPump.cs — Debug gizmo adds 60000 to progressTicks. Not synced.</p>
+</div>
+
+<div class="card">
+  <h4><span class="risk low">LOW</span> <code>MinifiedTree.ticksTillDeath</code></h4>
+  <p><strong>File:</strong> RimWorld/MinifiedTree.cs — Displayed in gizmo/inspect string. Unclear if any UI write path exists. Needs investigation.</p>
+</div>
+
+<div class="card">
+  <h4><span class="risk low">LOW</span> <code>Building_MusicalInstrument.currentPlayer</code></h4>
+  <p><strong>File:</strong> RimWorld/Building_MusicalInstrument.cs — Debug gizmo toggles player. Read in <code>Tick()</code> for sustainer management.</p>
+</div>
+
+<div class="card">
+  <h4><span class="risk low">LOW</span> <code>CompCauseGameCondition_PsychicSuppression.gender</code></h4>
+  <p><strong>File:</strong> RimWorld/CompCauseGameCondition_PsychicSuppression.cs — Gizmo toggles gender filter. Read in <code>CompTick()</code>. Not synced.</p>
+</div>
+
+<!-- ==================== FALSE POSITIVES ==================== -->
+<h2>False Positives (Scanner Flagged, Not Actually Risky)</h2>
+<p class="section-desc">The scanner correctly detected cross-boundary access, but these don't cause desyncs.</p>
+
+<table>
+  <thead><tr><th>Field</th><th>Why Not Risky</th><th>Category</th></tr></thead>
+  <tbody>
+    <tr><td><code>Pawn.lord</code></td><td>Only written by Lord system (AddPawn, etc.), never by UI gizmos directly</td><td><span class="status fp">Scanner artifact</span></td></tr>
+    <tr><td><code>Messages.mouseoverMessageIndex</code></td><td>Pure UI hover state, reset every frame, zero SIM impact</td><td><span class="status fp">UI-only</span></td></tr>
+    <tr><td><code>FleckSystemBase.tmpRemoveIndices</code></td><td>Temporary list for visual particle cleanup, cleared before use</td><td><span class="status fp">Visual-only</span></td></tr>
+    <tr><td><code>Building_GibbetCage.cageTopGraphic</code></td><td>Cached Graphic object for rendering</td><td><span class="status fp">Visual-only</span></td></tr>
+    <tr><td><code>WorldDrawLayer_Pollution.regionsToRegenerate</code></td><td>Queue for world-map mesh regeneration</td><td><span class="status fp">Visual-only</span></td></tr>
+    <tr><td><code>Page_ModsConfig.modListsDirty</code></td><td>Menu screen state, not active during gameplay</td><td><span class="status fp">Menu-only</span></td></tr>
+    <tr><td><code>ITab_Pawn_Log.cachedLogForPawn</code></td><td>Which pawn's log is displayed — pure UI cache</td><td><span class="status fp">UI-only</span></td></tr>
+    <tr><td><code>WITab_Caravan_Feeding.selectedPawn</code></td><td>Tab selection state</td><td><span class="status fp">UI-only</span></td></tr>
+    <tr><td><code>WITab_Caravan_Health.specificHealthTabForPawn</code></td><td>Tab selection state</td><td><span class="status fp">UI-only</span></td></tr>
+    <tr><td><code>WITab_Caravan_Needs.specificNeedsTabForPawn</code></td><td>Tab selection state</td><td><span class="status fp">UI-only</span></td></tr>
+    <tr><td><code>WITab_Caravan_Social.specificSocialTabForPawn</code></td><td>Tab selection state</td><td><span class="status fp">UI-only</span></td></tr>
+    <tr><td><code>Pawn_MechanitorTracker.tmpMechsInAssignedOrder</code></td><td>Temporary list, cleared before each use</td><td><span class="status fp">Temp buffer</span></td></tr>
+    <tr><td><code>CompGrowsFleshmassTendrils.drawDebug</code></td><td>Debug draw toggle, visual only</td><td><span class="status fp">Visual-only</span></td></tr>
+    <tr><td><code>CompCauseGameCondition_PsychicSuppression.gender</code></td><td>Set during def loading, not by runtime UI clicks</td><td><span class="status fp">Init-only</span></td></tr>
+    <tr><td><code>Building_GeneExtractor.sustainerWorking</code></td><td>Unity audio Sustainer object, marked [Unsaved], recreated from state</td><td><span class="status fp">Audio-only</span></td></tr>
+  </tbody>
+</table>
+
+<!-- ==================== COVERED ==================== -->
+<h2>Confirmed Covered by MP Mod</h2>
+<p class="section-desc">All critical UI-toggle fields from the scanner that are properly synced.</p>
+
+<table>
+  <thead><tr><th>Field</th><th>MP Sync Mechanism</th></tr></thead>
+  <tbody>
+    <tr><td><code>Building_TurretGun.holdFire</code></td><td><span class="status covered">SyncMethod.Lambda</span> on GetGizmos</td></tr>
+    <tr><td><code>Building_Door.holdOpenInt</code></td><td><span class="status covered">SyncDelegate.Lambda</span> on GetGizmos</td></tr>
+    <tr><td><code>Building_Trap.autoRearm</code></td><td><span class="status covered">SyncMethod.Lambda</span> on GetGizmos</td></tr>
+    <tr><td><code>Building_FirefoamPopper.autoRebuild</code></td><td><span class="status covered">SyncMethod.Lambda</span> on GetGizmos</td></tr>
+    <tr><td><code>CompBiosculpterPod.autoAgeReversal</code></td><td><span class="status covered">SyncDelegate.Lambda</span> on CompGetGizmosExtra</td></tr>
+    <tr><td><code>Genepack.autoLoad</code></td><td><span class="status covered">SyncField</span> + SyncDelegate</td></tr>
+    <tr><td><code>CompStudiable.studyEnabled</code></td><td><span class="status covered">SyncField</span></td></tr>
+    <tr><td><code>CompHoldingPlatformTarget.targetHolder</code></td><td><span class="status covered">SyncDelegate</span> for cancel/debug</td></tr>
+    <tr><td><code>Building_GrowthVat.containedNutrition</code></td><td><span class="status covered">SyncMethod</span> multiple lambdas</td></tr>
+    <tr><td><code>Building_MechCharger.wasteProduced</code></td><td><span class="status covered">SyncMethod</span> waste/charge modes</td></tr>
+    <tr><td><code>CompBandNode.tuningTimeLeft</code></td><td><span class="status covered">SyncMethod</span> select pawn</td></tr>
+    <tr><td><code>CompExplosive.countdownTicksLeft</code></td><td><span class="status covered">SyncMethod</span> StartWick</td></tr>
+    <tr><td><code>CompLaunchable.lastLaunchTick</code></td><td><span class="status covered">SyncMethod</span> TryLaunch</td></tr>
+    <tr><td><code>CompInteractable.cooldownTicks</code></td><td><span class="status covered">SyncMethod</span></td></tr>
+    <tr><td><code>CompAtomizer.ticksAtomized</code></td><td><span class="status covered">SyncMethod</span> autoLoad, Eject, debug</td></tr>
+    <tr><td><code>CompRechargeable.ticksUntilCharged</code></td><td><span class="status covered">SyncMethod</span> debug</td></tr>
+    <tr><td><code>Building_BioferriteHarvester.containedBioferrite</code></td><td><span class="status covered">SyncMethod</span> EjectContents</td></tr>
+    <tr><td><code>Building_SubcoreScanner.fabricationTicksLeft</code></td><td><span class="status covered">SyncMethod</span> lambdas</td></tr>
+    <tr><td><code>Building_GeneExtractor.sustainerWorking</code></td><td><span class="status covered">SyncMethod</span> Cancel/Finish</td></tr>
+    <tr><td><code>CompMechCarrier.cooldownTicksRemaining</code></td><td><span class="status covered">SyncMethod</span> TrySpawnPawns</td></tr>
+    <tr><td><code>CompFleshmassHeart.fleshbeastPoints</code></td><td><span class="status covered">SyncMethod</span> debug</td></tr>
+    <tr><td><code>CompFleshmassSpitter.lastSpitTick</code></td><td><span class="status covered">SyncMethod</span> debug</td></tr>
+    <tr><td><code>CompCanBeDormant.wakeUpOnTick</code></td><td><span class="status covered">SyncMethod</span> debug</td></tr>
+    <tr><td><code>MonumentMarker.ticksSinceDisallowedBuilding</code></td><td><span class="status covered">SyncMethod</span> PlaceBlueprints</td></tr>
+    <tr><td><code>Pawn_CreepJoinerTracker.canTriggerDownsideAfter</code></td><td><span class="status covered">SyncMethod</span> debug</td></tr>
+    <tr><td><code>UnnaturalCorpse.teleport</code></td><td><span class="status covered">SyncMethod</span> debug</td></tr>
+  </tbody>
+</table>
+
+<!-- ==================== ADDITIONAL ==================== -->
+<h2>Beyond Field Access — Other MP Concerns</h2>
+<p class="section-desc">Issues found through AI code analysis that go beyond simple field access patterns. These are systemic risks, not individual fields.</p>
+
+<div class="note warn">
+  The following findings are from AI analysis of decompiled source code. They are high-confidence observations based on reading actual code, but have not been verified at runtime. Treat as investigation leads.
+</div>
+
+<table>
+  <thead><tr><th>Issue</th><th>Risk</th><th>Details</th><th>MP Mod Status</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Camera-based TickInterval</strong></td>
+      <td><span class="risk critical">CRITICAL</span></td>
+      <td><code>Pawn.TickInterval</code> uses camera distance for tick frequency. Different cameras = different tick counts.</td>
+      <td><span class="status covered">SOLVED</span> — <code>TickRatePatch.cs</code> forces fixed tick rate</td>
+    </tr>
+    <tr>
+      <td><strong>Global Rand state</strong></td>
+      <td><span class="risk critical">CRITICAL</span></td>
+      <td>Single unmatched <code>Rand.Value</code> call desyncs all future random numbers.</td>
+      <td><span class="status covered">SOLVED</span> — <code>Seeds.cs</code> + <code>Determinism.cs</code></td>
+    </tr>
+    <tr>
+      <td><strong>HashCode non-determinism</strong></td>
+      <td><span class="risk high">HIGH</span></td>
+      <td><code>TickList</code> buckets by <code>GetHashCode()</code> — not guaranteed identical across .NET processes.</td>
+      <td>Unknown — needs verification</td>
+    </tr>
+    <tr>
+      <td><strong>Static tmpLists without ThreadStatic</strong></td>
+      <td><span class="risk high">HIGH</span></td>
+      <td><code>CastPositionFinder</code>, <code>JobFailReason</code>, <code>ThinkNode_PrioritySorter</code> — all state in static fields without locking.</td>
+      <td>Safe in single-threaded vanilla. Risk if async work added.</td>
+    </tr>
+    <tr>
+      <td><strong>Float accumulation drift</strong></td>
+      <td><span class="risk medium">MEDIUM</span></td>
+      <td><code>workLeft -= speed × delta</code>, <code>Temperature += equalization</code>, <code>severity += change</code> — tiny CPU-specific rounding errors accumulate.</td>
+      <td>Unknown — may need periodic resync</td>
+    </tr>
+    <tr>
+      <td><strong>Lazy init with Rand</strong></td>
+      <td><span class="risk medium">MEDIUM</span></td>
+      <td><code>Zone.Cells</code> shuffles on first access. Different access timing = Rand consumed at different points.</td>
+      <td>Unknown — needs verification</td>
+    </tr>
+    <tr>
+      <td><strong>Unseeded weighted random</strong></td>
+      <td><span class="risk medium">MEDIUM</span></td>
+      <td><code>GetRandomShootingTargetByScore</code>, ThinkTree job selection use <code>TryRandomElementByWeight</code> — no visible seed isolation.</td>
+      <td><span class="status debug">AI — Lower Confidence</span> — Needs runtime verification</td>
+    </tr>
+    <tr>
+      <td><strong>Culture/Locale float parsing</strong></td>
+      <td><span class="risk low">LOW</span></td>
+      <td>Async operations on non-English systems parse floats differently (comma vs decimal). <code>LongEventHandler</code> calls <code>EnsureEnglish()</code> but custom async work might not.</td>
+      <td>Handled for vanilla, risk for mod async work</td>
+    </tr>
+  </tbody>
+</table>
+
+<div style="margin-top:40px; padding-top:16px; border-top:1px solid var(--border); color:var(--text-dim); font-size:0.78em">
+  <p>Generated by static analysis of RimWorld 1.6.4633 (decompiled via ILSpy) cross-referenced with Multiplayer mod source.<br>
+  AI-assisted analysis — results should be verified at runtime before acting on them.</p>
+</div>
+
+</body>
+</html>
