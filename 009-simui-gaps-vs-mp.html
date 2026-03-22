@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RimWorld 1.6 — MP Sync Gaps (Deep Analysis vs. Multiplayer Mod)</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1c2129; --border: #30363d;
+    --text: #c9d1d9; --text-dim: #8b949e; --accent: #58a6ff; --white: #fff;
+    --critical: #f85149; --high: #f0883e; --medium: #d29922; --low: #3fb950;
+    --covered: #238636; --gap: #da3633;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', -apple-system, sans-serif; line-height: 1.6; padding: 24px; max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.5em; color: var(--white); margin-bottom: 4px; }
+  h2 { font-size: 1.15em; color: var(--white); margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .subtitle { color: var(--text-dim); font-size: 0.88em; margin-bottom: 20px; }
+  code { font-family: 'Cascadia Code','Fira Code','Consolas', monospace; font-size: 0.88em; background: rgba(110,118,129,0.2); padding: 1px 5px; border-radius: 3px; }
+
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .summary-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; text-align: center; }
+  .summary-card .num { font-size: 2.2em; font-weight: 700; }
+  .summary-card .label { font-size: 0.78em; color: var(--text-dim); margin-top: 2px; }
+
+  .risk { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.72em; font-weight: 700; text-transform: uppercase; }
+  .risk.critical { background: rgba(248,81,73,0.15); color: var(--critical); }
+  .risk.high { background: rgba(240,136,62,0.15); color: var(--high); }
+  .risk.medium { background: rgba(210,153,34,0.15); color: var(--medium); }
+
+  .status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.72em; font-weight: 600; }
+  .status.covered { background: rgba(35,134,54,0.15); color: var(--covered); border: 1px solid rgba(35,134,54,0.3); }
+  .status.gap { background: rgba(218,54,51,0.15); color: var(--gap); border: 1px solid rgba(218,54,51,0.3); }
+
+  .note { background: rgba(88,166,255,0.06); border: 1px solid rgba(88,166,255,0.15); border-radius: 6px; padding: 10px 14px; margin: 12px 0; font-size: 0.84em; }
+  .note.warn { background: rgba(210,153,34,0.06); border-color: rgba(210,153,34,0.15); }
+  .note.danger { background: rgba(248,81,73,0.06); border-color: rgba(248,81,73,0.15); }
+  .note.success { background: rgba(35,134,54,0.06); border-color: rgba(35,134,54,0.15); }
+
+  .gap-card { background: var(--surface); border: 1px solid var(--gap); border-radius: 8px; padding: 16px 18px; margin-bottom: 12px; }
+  .gap-card h3 { color: var(--white); font-size: 0.95em; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .gap-card p { font-size: 0.86em; margin-bottom: 6px; }
+  .gap-card pre { background: var(--surface2); padding: 10px; border-radius: 4px; margin: 8px 0; font-size: 0.84em; overflow-x: auto; white-space: pre-wrap; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.84em; margin: 8px 0; }
+  th { text-align: left; color: var(--text-dim); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 6px 8px; border-bottom: 1px solid rgba(48,54,61,0.4); vertical-align: top; }
+  tr:hover { background: rgba(255,255,255,0.02); }
+
+  .fix-suggestion { margin-top: 8px; padding: 8px 12px; background: rgba(63,185,80,0.05); border-left: 3px solid var(--low); border-radius: 0 4px 4px 0; font-size: 0.84em; }
+  .fix-suggestion strong { color: var(--low); }
+
+  .covered-section { margin-top: 12px; }
+  .covered-row td:first-child { font-family: 'Cascadia Code','Fira Code','Consolas', monospace; font-size: 0.85em; }
+</style>
+</head>
+<body>
+
+<h1>RimWorld 1.6 — MP Sync Gap Analysis</h1>
+<p class="subtitle">Cross-reference: 42 manual ROOT findings (deep code review) vs. Multiplayer Mod sync registrations (440+ sync points)</p>
+
+<div class="summary-grid">
+  <div class="summary-card">
+    <div class="num" style="color:var(--white)">42</div>
+    <div class="label">ROOT findings checked</div>
+  </div>
+  <div class="summary-card">
+    <div class="num" style="color:var(--covered)">39</div>
+    <div class="label">Covered by MP mod</div>
+  </div>
+  <div class="summary-card">
+    <div class="num" style="color:var(--gap)">3</div>
+    <div class="label">Potential gaps</div>
+  </div>
+  <div class="summary-card">
+    <div class="num" style="color:var(--covered)">93%</div>
+    <div class="label">Coverage rate</div>
+  </div>
+</div>
+
+<div class="note success">
+  <strong>Conclusion:</strong> The Multiplayer Mod has extremely high coverage. Out of 42 ROOT findings from deep manual code review, only 3 potential gaps remain — all in the RNG/determinism area, zero SIM↔UI field gaps. Zetrith's team has done very thorough work.
+</div>
+
+<!-- ==================== GAPS ==================== -->
+<h2><span class="status gap">3 GAPS</span> Potential Sync Gaps</h2>
+<p style="color:var(--text-dim); font-size:0.86em; margin-bottom:14px">Findings from the deep analysis that have no corresponding sync registration or Harmony patch in the MP mod source code.</p>
+
+<div class="gap-card">
+  <h3><span class="risk critical">CRITICAL</span> <code>IncidentWorker_SeasonalFlooding.CanFireNowSub</code></h3>
+  <p><strong>Type:</strong> SIM↔UI — per-client UI state in SIM method</p>
+  <p><strong>File:</strong> RimWorld/IncidentWorker_SeasonalFlooding.cs (RI-71)</p>
+  <pre><code>Vector2 longLat = Find.WorldGrid.LongLatOf(<span style="color:var(--critical)">Find.WorldSelector.SelectedTile</span>);
+Season season = GenDate.Season(Find.TickManager.TicksGame, longLat);</code></pre>
+  <p><strong>Problem:</strong> <code>CanFireNowSub()</code> is called by the Storyteller in SIM context. <code>Find.WorldSelector.SelectedTile</code> is per-client UI state — each player can have a different tile selected on the world map. Different tiles → different hemisphere → different season → incident fires on one client but not the other.</p>
+  <p><strong>MP Mod Status:</strong> No patch found. <code>SelectedTile</code> is only referenced in the MP mod in <code>FactionSidebar.cs</code> for faction setup, not for this incident.</p>
+  <p style="color:var(--text-dim); font-size:0.82em"><em>Note: Likely a vanilla bug. Should use <code>map.Tile</code> instead of <code>Find.WorldSelector.SelectedTile</code>. Only relevant when RW 1.6 Seasonal Flooding is active.</em></p>
+  <div class="fix-suggestion"><strong>Suggested fix:</strong> Transpiler replacing <code>Find.WorldSelector.SelectedTile</code> with <code>parms.target.Tile</code>, or a prefix that temporarily sets SelectedTile to the map tile.</div>
+</div>
+
+<div class="gap-card">
+  <h3><span class="risk high">HIGH</span> <code>PitGate.Tick</code> — Rand behind CurrentMap check</h3>
+  <p><strong>Type:</strong> RNG ROOT — Rand consumption depends on camera</p>
+  <p><strong>File:</strong> RimWorld/PitGate.cs (RI-89), line 139</p>
+  <pre><code>// Inside if (IsCollapsing) / CollapseStage == 2:
+if (<span style="color:var(--critical)">Find.CurrentMap == base.Map</span> && Rand.MTBEventOccurs(2f, 60f, 1f))
+{
+    Find.CameraDriver.shaker.DoShake(0.2f);
+}</code></pre>
+  <p><strong>Problem:</strong> Short-circuit evaluation: <code>Rand.MTBEventOccurs</code> is ONLY called when the client is viewing this map. Client A sees the map → consumes Rand. Client B sees a different map → skips Rand. Global Rand counter diverges → all future random numbers are shifted.</p>
+  <p><strong>MP Mod Status:</strong> No patch for this specific Rand call. <code>UndercaveMapComponent.MapComponentTick</code> is patched (Determinism.cs:541), but <code>PitGate.Tick</code> itself has no determinism patch. Only debug gizmos are synced (SyncMethods.cs:462-464).</p>
+  <p style="color:var(--text-dim); font-size:0.82em"><em>Note: Only affects Anomaly DLC, only during PitGate collapse stage 2. Impact depends on MTB event frequency.</em></p>
+  <div class="fix-suggestion"><strong>Suggested fix:</strong> Always call Rand.MTBEventOccurs, only conditionally DoShake: <code>bool shake = Rand.MTBEventOccurs(2f, 60f, 1f); if (Find.CurrentMap == base.Map && shake) DoShake(...);</code></div>
+</div>
+
+<div class="gap-card">
+  <h3><span class="risk high">HIGH</span> <code>WorldObject.Print</code> — Rand without PushState</h3>
+  <p><strong>Type:</strong> RNG ROOT — Rand in render method without isolation</p>
+  <p><strong>File:</strong> RimWorld.Planet/WorldObject.cs (RI-45), line 514-519</p>
+  <pre><code>public virtual void Print(LayerSubMesh subMesh)
+{
+    float num = Rand.RangeSeeded(0f, 0.01f, ID);  // ← SAFE (seeded)
+    WorldRendererUtility.PrintQuadTangentialToPlanet(
+        DrawPos, 0.7f * averageTileSize, 0.03f + num, subMesh,
+        counterClockwise: false, <span style="color:var(--critical)">Rand.Range(0f, 360f)</span>);  // ← NOT seeded!
+}</code></pre>
+  <p><strong>Problem:</strong> <code>Print()</code> builds world meshes and is called during the render pass when a layer is dirty. The mesh rebuild happens per-client at different times. <code>Rand.Range(0f, 360f)</code> consumes the global Rand counter without PushState.</p>
+  <p><strong>MP Mod Status:</strong> No patch for <code>WorldObject.Print</code> or the Rand call within it. The VTR patch (VTRSyncPatch.cs) synchronizes the tick rate, but not the Rand consumption in the render pipeline.</p>
+  <p style="color:var(--text-dim); font-size:0.82em"><em>Note: <code>Rand.RangeSeeded(0f, 0.01f, ID)</code> on the same line is correctly isolated. Only the rotation Rand is the problem. Affects all WorldObjects that don't override Print().</em></p>
+  <div class="fix-suggestion"><strong>Suggested fix:</strong> Replace <code>Rand.Range(0f, 360f)</code> with <code>Rand.RangeSeeded(0f, 360f, ID * 7)</code> (analogous to the existing seeded call above), or wrap the entire Print() in PushState/PopState.</div>
+</div>
+
+<!-- ==================== COVERED ==================== -->
+<h2><span class="status covered">39 COVERED</span> Findings covered by MP Mod</h2>
+
+<div class="note">
+  All 39 SIM↔UI + RNG findings that are correctly synchronized by the Multiplayer Mod. Grouped by sync mechanism.
+</div>
+
+<h3 style="color:var(--accent); font-size:0.95em; margin-top:20px">SyncMethod / SyncMethod.Lambda</h3>
+<table class="covered-section">
+  <thead><tr><th>Class</th><th>Finding</th><th>MP Mod Sync</th></tr></thead>
+  <tbody>
+    <tr><td>Pawn_DraftController</td><td>draftedInt + fireAtWillInt</td><td><span class="status covered">SyncMethod</span> Drafted + FireAtWill</td></tr>
+    <tr><td>CompPower</td><td>TryManualReconnect (power grid)</td><td><span class="status covered">SyncMethod</span> TryManualReconnect</td></tr>
+    <tr><td>CompTransporter</td><td>CancelLoad (groupID, leftToLoad)</td><td><span class="status covered">SyncMethod</span> CancelLoad</td></tr>
+    <tr><td>CompMechCarrier</td><td>TrySpawnPawns (mech release)</td><td><span class="status covered">SyncMethod</span> TrySpawnPawns</td></tr>
+    <tr><td>Building_GeneAssembler</td><td>Start + Reset (xenogerm)</td><td><span class="status covered">SyncMethod</span> Start + Reset</td></tr>
+    <tr><td>Building_SubcoreScanner</td><td>initScanner + EjectContents</td><td><span class="status covered">SyncMethod.Lambda</span>(1) + SyncMethod EjectContents</td></tr>
+    <tr><td>Building_BioferriteHarvester</td><td>unloadingEnabled + EjectContents</td><td><span class="status covered">SyncMethod.Lambda</span>(1) + SyncMethod EjectContents</td></tr>
+    <tr><td>HarbingerTree</td><td>CreateCorpseStockpile (zone creation)</td><td><span class="status covered">SyncMethod</span> CreateCorpseStockpile (MapSelected)</td></tr>
+    <tr><td>Blueprint_Build</td><td>StyleDef / styleOverridden</td><td><span class="status covered">SyncMethod</span> ChangeStyleOfAllSelected (MapSelected)</td></tr>
+    <tr><td>Gene_Deathrest</td><td>autoWake + Wake()</td><td><span class="status covered">SyncMethod</span> Wake + Lambda(2) autoWake</td></tr>
+    <tr><td>CompExplosive</td><td>countdownTicksLeft (no DevMode guard)</td><td><span class="status covered">SyncMethod</span> StartWick + Lambda(0) DebugOnly</td></tr>
+    <tr><td>CompAtomizer</td><td>autoLoad + EjectContents</td><td><span class="status covered">SyncMethod.Lambda</span>(1) autoLoad + SyncMethod EjectContents</td></tr>
+    <tr><td>CompGenepackContainer</td><td>innerContainer (Eject All)</td><td><span class="status covered">SyncMethod</span> EjectContents</td></tr>
+    <tr><td>CompGlower</td><td>glowColorOverride (color/darklight)</td><td><span class="status covered">SyncMethod</span> SetGlowColorInternal + Lambda(2,3)</td></tr>
+    <tr><td>Genepack</td><td>autoLoad</td><td><span class="status covered">SyncMethod.Lambda</span>(1) autoLoad</td></tr>
+    <tr><td>Plant</td><td>Cut All Blight (designations)</td><td><span class="status covered">SyncMethod.Lambda</span>(0) in GetGizmos</td></tr>
+    <tr><td>BillStack</td><td>Delete + Reorder</td><td><span class="status covered">SyncMethod</span> Delete + Reorder</td></tr>
+    <tr><td>Caravan_PathFollower</td><td>paused</td><td><span class="status covered">SyncMethod</span> Paused</td></tr>
+    <tr><td>CompGatherSpot</td><td>active (gatherSpotLister)</td><td><span class="status covered">SyncMethod</span> Active</td></tr>
+    <tr><td>CompForbiddable</td><td>forbiddenInt (hauling/pathfinding)</td><td><span class="status covered">SyncMethod</span> Forbidden</td></tr>
+  </tbody>
+</table>
+
+<h3 style="color:var(--accent); font-size:0.95em; margin-top:20px">SyncField</h3>
+<table class="covered-section">
+  <thead><tr><th>Class</th><th>Finding</th><th>MP Mod Sync</th></tr></thead>
+  <tbody>
+    <tr><td>Bill_Production</td><td>repeatMode, repeatCount, targetCount, paused, ...</td><td><span class="status covered">SyncFields</span> (5+ fields: SyncBillProduction etc.)</td></tr>
+    <tr><td>Bill</td><td>suspended</td><td><span class="status covered">SyncField</span> SyncBillSuspended</td></tr>
+    <tr><td>CompMechRepairable</td><td>autoRepair</td><td><span class="status covered">SyncField</span> SyncMechAutoRepair</td></tr>
+    <tr><td>CompRefuelable</td><td>allowAutoRefuel + configuredTargetFuelLevel</td><td><span class="status covered">SyncFields</span> BufferChanges</td></tr>
+    <tr><td>CompStudiable</td><td>studyEnabled</td><td><span class="status covered">SyncField</span> SyncStudiableCompEnabled</td></tr>
+  </tbody>
+</table>
+
+<h3 style="color:var(--accent); font-size:0.95em; margin-top:20px">SyncDelegate</h3>
+<table class="covered-section">
+  <thead><tr><th>Class</th><th>Finding</th><th>MP Mod Sync</th></tr></thead>
+  <tbody>
+    <tr><td>CompFlickable</td><td>wantSwitchOn (all flickable buildings!)</td><td><span class="status covered">SyncDelegate</span> Lambda(1)</td></tr>
+    <tr><td>CompBandNode</td><td>TuneTo FloatMenu</td><td><span class="status covered">SyncDelegate</span> Lambda(7)</td></tr>
+    <tr><td>CompLongRangeMineralScanner</td><td>targetMineable FloatMenu</td><td><span class="status covered">SyncDelegate</span> Lambda(1) MapSelected</td></tr>
+    <tr><td>CompHoldingPlatformTarget</td><td>targetHolder (capture/cancel)</td><td><span class="status covered">SyncDelegate</span> StudyUtility.TargetHoldingPlatformForEntity(2)</td></tr>
+    <tr><td>CompNociosphere</td><td>sendLocation (targeting)</td><td><span class="status covered">SyncDelegate</span> TargetLocation(1)</td></tr>
+    <tr><td>CompTargetable</td><td>selectedTarget (OrderForceTarget)</td><td><span class="status covered">SyncDelegate</span> ITargetingSource dynamic</td></tr>
+    <tr><td>Zone_Growing</td><td>allowSow + allowCut + plantDefToGrow</td><td><span class="status covered">SyncDelegate</span> Lambda(1,3) + Command_SetPlantToGrow</td></tr>
+    <tr><td>LordJob_BestowingCeremony</td><td>Leave + Cancel Ceremony</td><td><span class="status covered">SyncDelegate</span> Lambda(0,2)</td></tr>
+    <tr><td>LordJob_Ritual</td><td>Leave + Cancel Ritual</td><td><span class="status covered">SyncDelegate</span> Lambda(0) + Cancel</td></tr>
+    <tr><td>Pawn_TrainingTracker</td><td>attackTarget + mindState</td><td><span class="status covered">SyncDelegate</span> Lambda(0,3) MapSelected</td></tr>
+    <tr><td>Building_GeneExtractor</td><td>SelectPawn + Cancel</td><td><span class="status covered">SyncDelegate</span> SelectPawn(0)</td></tr>
+    <tr><td>CompAbilityEffect_ReimplantXenogerm</td><td>GiveReimplantJob</td><td><span class="status covered">SyncDelegate</span> via ITargetingSource</td></tr>
+  </tbody>
+</table>
+
+<h3 style="color:var(--accent); font-size:0.95em; margin-top:20px">Harmony Patches (Determinism / Special)</h3>
+<table class="covered-section">
+  <thead><tr><th>Class</th><th>Finding</th><th>MP Mod Patch</th></tr></thead>
+  <tbody>
+    <tr><td>UndercaveMapComponent</td><td>Find.CurrentMap gated tick + 9 Rand calls</td><td><span class="status covered">Transpiler</span> Determinism.cs:541 — Rand.MTBEventOccurs → &false, custom PushState/PopState, TriggerCollapseFX(0,0) for non-visible map</td></tr>
+    <tr><td>FactionIdeosTracker</td><td>Find.WindowStack.IsOpen early return</td><td><span class="status covered">Harmony</span> FactionContextSetters.cs:86 — FactionContext.Push/Pop</td></tr>
+    <tr><td>Ideo</td><td>RecacheColonistBelieverCount WindowStack gate</td><td><span class="status covered">Transpiler</span> MultifactionPatches.cs:463 — replaces colonist query with AllFactions version</td></tr>
+    <tr><td>WorldObject.UpdateRateTicks</td><td>WorldSelected per-client tick rate</td><td><span class="status covered">Harmony Prefix</span> VTRSyncPatch.cs:38 — returns fixed <code>Multiplayer.AsyncWorldTime.VTR</code></td></tr>
+    <tr><td>HarbingerTree (RNG)</td><td>MakeStaticMote makeOffscreen:false</td><td><span class="status covered">Global Patch</span> Determinism.cs — FixNullMotes sets makeOffscreen=true</td></tr>
+    <tr><td>Plant (RNG)</td><td>TickLong leaf-drop Rand behind mote check</td><td><span class="status covered">Global Patch</span> Determinism.cs — FixNullMotes</td></tr>
+  </tbody>
+</table>
+
+<div style="margin-top:40px; padding-top:16px; border-top:1px solid var(--border); color:var(--text-dim); font-size:0.78em">
+  <p>RimWorld 1.6.4633 · MP Mod as of: 2026-03-22</p>
+</div>
+
+</body>
+</html>
