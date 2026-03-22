@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Determinism Manifest Viewer</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1c2129; --border: #30363d;
+    --text: #c9d1d9; --text-dim: #8b949e; --accent: #58a6ff; --white: #fff;
+    --critical: #f85149; --high: #f0883e; --medium: #d29922; --low: #3fb950;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', -apple-system, sans-serif; line-height: 1.6; padding: 20px; }
+  .container { max-width: 1300px; margin: 0 auto; }
+  h1 { font-size: 1.5em; color: var(--white); margin-bottom: 4px; }
+  h2 { font-size: 1.15em; color: var(--white); margin: 20px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .subtitle { color: var(--text-dim); font-size: 0.88em; margin-bottom: 16px; }
+  code { font-family: 'Cascadia Code','Fira Code','Consolas', monospace; font-size: 0.88em; background: rgba(110,118,129,0.2); padding: 1px 5px; border-radius: 3px; }
+
+  .drop-zone { border: 2px dashed var(--border); border-radius: 12px; padding: 40px; text-align: center; color: var(--text-dim); cursor: pointer; transition: all 0.2s; margin-bottom: 20px; }
+  .drop-zone:hover, .drop-zone.drag { border-color: var(--accent); color: var(--accent); }
+  .drop-zone input { display: none; }
+
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); flex-wrap: wrap; margin-bottom: 0; }
+  .tab { padding: 8px 16px; background: transparent; border: none; color: var(--text-dim); cursor: pointer; font-size: 0.86em; border-bottom: 2px solid transparent; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-content { display: none; padding-top: 16px; }
+  .tab-content.active { display: block; }
+
+  .stats-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; text-align: center; min-width: 100px; }
+  .stat strong { color: var(--white); font-size: 1.3em; display: block; }
+  .stat .label { font-size: 0.74em; color: var(--text-dim); }
+
+  .risk { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.72em; font-weight: 700; text-transform: uppercase; }
+  .risk.critical { background: rgba(248,81,73,0.15); color: var(--critical); }
+  .risk.high { background: rgba(240,136,62,0.15); color: var(--high); }
+  .risk.medium { background: rgba(210,153,34,0.15); color: var(--medium); }
+  .risk.low { background: rgba(63,185,80,0.15); color: var(--low); }
+  .risk.medium-high { background: rgba(240,136,62,0.12); color: var(--high); }
+
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
+  input[type="text"] { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 5px 10px; border-radius: 6px; font-size: 0.85em; width: 280px; }
+  input::placeholder { color: var(--text-dim); }
+  .filter-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text-dim); padding: 4px 10px; border-radius: 14px; cursor: pointer; font-size: 0.78em; }
+  .filter-btn:hover { border-color: var(--accent); color: var(--text); }
+  .filter-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,0.08); }
+  .filter-btn.critical.active { border-color: var(--critical); color: var(--critical); }
+  .filter-btn.high.active { border-color: var(--high); color: var(--high); }
+  .filter-btn.medium.active { border-color: var(--medium); color: var(--medium); }
+  .filter-btn.low.active { border-color: var(--low); color: var(--low); }
+  .result-count { color: var(--text-dim); font-size: 0.82em; margin-bottom: 8px; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; overflow: hidden; }
+  .card-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; user-select: none; flex-wrap: wrap; }
+  .card-header:hover { background: rgba(255,255,255,0.02); }
+  .card.open .card-body { display: block; }
+  .card-body { display: none; padding: 0 12px 10px; font-size: 0.84em; }
+  .cls { font-weight: 600; color: var(--white); font-size: 0.9em; font-family: monospace; }
+  .meth { color: var(--accent); font-size: 0.85em; font-family: monospace; }
+  .fpath { color: var(--text-dim); font-size: 0.76em; }
+  .meta { margin-left: auto; display: flex; gap: 6px; align-items: center; font-size: 0.78em; color: var(--text-dim); }
+  .chev { color: var(--text-dim); font-size: 0.65em; transition: transform 0.2s; }
+  .card.open .chev { transform: rotate(90deg); }
+  .tag { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 0.72em; }
+  .tag.sim { background: rgba(121,192,255,0.12); color: #79c0ff; }
+  .tag.ui { background: rgba(210,168,255,0.12); color: #d2a8ff; }
+  .tag.unknown { background: rgba(110,118,129,0.12); color: var(--text-dim); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.84em; margin: 6px 0; }
+  th { text-align: left; color: var(--text-dim); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  td { padding: 4px 6px; border-bottom: 1px solid rgba(48,54,61,0.3); vertical-align: top; }
+
+  .entry-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+  .entry-card h4 { color: var(--white); font-size: 0.9em; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .entry-card p { font-size: 0.82em; color: var(--text-dim); margin: 2px 0; }
+  .entry-card .warn { color: var(--critical); }
+
+  #content { display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Determinism Manifest Viewer</h1>
+<p class="subtitle">Drop any manifest JSON — auto-detects format (scanner output, callgraph, or full determinism manifest)</p>
+
+<div id="autoLoadStatus" style="color:var(--text-dim);font-size:0.84em;margin-bottom:10px"></div>
+
+<div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+  Drop JSON here or click to browse
+  <input type="file" id="fileInput" accept=".json" multiple>
+</div>
+
+<div id="content">
+  <div id="statsBar" class="stats-bar"></div>
+  <div class="tabs" id="tabBar"></div>
+  <div id="tabContent"></div>
+</div>
+</div>
+
+<script>
+let data = null;
+let format = null; // 'scanner' | 'callgraph' | 'manifest'
+
+let loadedFileName = null;
+
+const dz = document.getElementById('dropZone');
+const fi = document.getElementById('fileInput');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); loadFile(e.dataTransfer.files[0]); });
+fi.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+function esc(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
+
+// Auto-load: try to fetch JSON files from same directory
+const AUTO_LOAD_FILES = [
+  'determinism-manifest.json',
+  'mod-manifest.json',
+  'manifest.json',
+  'filtered.json',
+  'callgraph-vanilla.json',
+  'callgraph.json'
+];
+
+async function tryAutoLoad() {
+  const status = document.getElementById('autoLoadStatus');
+  for (const file of AUTO_LOAD_FILES) {
+    try {
+      status.textContent = `Looking for ${file}...`;
+      const resp = await fetch(file);
+      if (resp.ok) {
+        const json = await resp.json();
+        loadedFileName = file;
+        data = json;
+        format = detectFormat(data);
+        dz.style.display = 'none';
+        status.innerHTML = `Loaded <strong>${file}</strong> — <a href="#" onclick="downloadJson();return false" style="color:var(--accent)">Download JSON</a> | <a href="#" onclick="resetViewer();return false" style="color:var(--accent)">Load different file</a>`;
+        document.getElementById('content').style.display = 'block';
+        render();
+        return;
+      }
+    } catch (e) { /* fetch failed, try next */ }
+  }
+  status.textContent = 'No JSON found in same folder — drop a file below.';
+}
+
+function resetViewer() {
+  dz.style.display = '';
+  document.getElementById('content').style.display = 'none';
+  document.getElementById('autoLoadStatus').innerHTML = '<a href="#" onclick="tryAutoLoad();return false" style="color:var(--accent)">Try auto-load again</a>';
+  data = null; format = null; loadedFileName = null;
+}
+
+function downloadJson() {
+  if (!data) return;
+  const name = loadedFileName || 'manifest.json';
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      data = JSON.parse(e.target.result);
+      loadedFileName = file.name;
+      format = detectFormat(data);
+      dz.style.display = 'none';
+      document.getElementById('autoLoadStatus').innerHTML = `Loaded <strong>${esc(file.name)}</strong> — <a href="#" onclick="downloadJson();return false" style="color:var(--accent)">Download JSON</a> | <a href="#" onclick="resetViewer();return false" style="color:var(--accent)">Load different file</a>`;
+      document.getElementById('content').style.display = 'block';
+      render();
+    } catch (err) { alert('Invalid JSON: ' + err.message); }
+  };
+  reader.readAsText(file);
+}
+
+function detectFormat(d) {
+  if (d.randCalls && d.callGraph && d.riskyVanillaEntryPoints) return 'manifest';
+  if (d.meta?.scanner?.includes('callgraph')) return 'callgraph';
+  return 'scanner';
+}
+
+// ============ RENDER ============
+
+function render() {
+  if (format === 'manifest') renderManifest();
+  else if (format === 'callgraph') renderCallgraph();
+  else renderScanner();
+}
+
+// ============ MANIFEST (Bluescreen format) ============
+
+function renderManifest() {
+  const rc = data.randCalls;
+  const s = {
+    modRand: rc.modFindings.length,
+    vanillaCrit: rc.vanillaCritical.length,
+    flecks: data.fleckMoteEmissions.mods.length,
+    jobs: data.jobCreation.mods.length,
+    statics: data.staticMutables.mods.length,
+    perClient: data.perClientState.mods.length,
+    inheritance: data.callGraph.modInheritance.length,
+    roots: data.callGraph.riskyRoots.length,
+  };
+
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat"><strong>${s.modRand}</strong><span class="label">Mod Rand Calls</span></div>
+    <div class="stat"><strong>${s.vanillaCrit}</strong><span class="label">Vanilla Critical</span></div>
+    <div class="stat"><strong style="color:var(--high)">${s.flecks}</strong><span class="label">Fleck Emissions</span></div>
+    <div class="stat"><strong>${s.jobs}</strong><span class="label">Job Creation</span></div>
+    <div class="stat"><strong>${s.statics}</strong><span class="label">Static Mutables</span></div>
+    <div class="stat"><strong style="color:var(--critical)">${s.perClient}</strong><span class="label">Per-Client State</span></div>
+    <div class="stat"><strong>${s.inheritance}</strong><span class="label">Mod→Vanilla</span></div>
+    <div class="stat"><strong style="color:var(--high)">${s.roots}</strong><span class="label">Risky Roots</span></div>
+  `;
+
+  const tabs = [
+    { id: 'rand', label: `Rand Calls (${s.modRand})` },
+    { id: 'perclient', label: `Per-Client (${s.perClient})` },
+    { id: 'flecks', label: `Flecks (${s.flecks})` },
+    { id: 'jobs', label: `Jobs (${s.jobs})` },
+    { id: 'statics', label: `Statics (${s.statics})` },
+    { id: 'roots', label: `Risky Roots (${s.roots})` },
+    { id: 'entry', label: 'Vanilla Entry Points' },
+  ];
+
+  document.getElementById('tabBar').innerHTML = tabs.map((t, i) =>
+    `<button class="tab ${i === 0 ? 'active' : ''}" onclick="switchManifestTab('${t.id}')">${t.label}</button>`
+  ).join('');
+
+  document.getElementById('tabContent').innerHTML = tabs.map((t, i) =>
+    `<div id="mt-${t.id}" class="tab-content ${i === 0 ? 'active' : ''}"></div>`
+  ).join('');
+
+  renderRandTab();
+  renderPerClientTab();
+  renderFlecksTab();
+  renderJobsTab();
+  renderStaticsTab();
+  renderRootsTab();
+  renderEntryTab();
+}
+
+function switchManifestTab(id) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.getElementById('mt-' + id).classList.add('active');
+  document.querySelector(`.tab[onclick="switchManifestTab('${id}')"]`).classList.add('active');
+}
+
+function makeCard(risk, cls, method, file, context, bodyHtml, metaHtml) {
+  return `<div class="card">
+    <div class="card-header" onclick="this.parentElement.classList.toggle('open')">
+      <span class="risk ${risk}">${risk}</span>
+      <span class="cls">${esc(cls)}</span>
+      <span class="meth">.${esc(method)}()</span>
+      ${context ? `<span class="tag ${context}">${context}</span>` : ''}
+      <span class="fpath">${esc(file)}</span>
+      <span class="meta">${metaHtml || ''}<span class="chev">&#9654;</span></span>
+    </div>
+    <div class="card-body">${bodyHtml}</div>
+  </div>`;
+}
+
+function renderRandTab() {
+  const box = document.getElementById('mt-rand');
+  const items = data.randCalls.modFindings.sort((a, b) => riskVal(b.risk) - riskVal(a.risk));
+  let html = '<div class="controls"><input type="text" id="rand-search" placeholder="Search..." oninput="filterCards(\'rand\')"><button class="filter-btn critical active" onclick="toggleRisk(this,\'rand\')">Critical</button><button class="filter-btn high active" onclick="toggleRisk(this,\'rand\')">High</button><button class="filter-btn medium active" onclick="toggleRisk(this,\'rand\')">Medium</button><button class="filter-btn low active" onclick="toggleRisk(this,\'rand\')">Low</button></div>';
+  html += `<div class="result-count">${items.length} findings</div>`;
+  html += '<div id="rand-list">';
+  for (const f of items) {
+    const body = `
+      <table><thead><tr><th>Call</th><th>Line</th><th>PushState?</th><th>Code</th></tr></thead><tbody>
+      ${f.randCalls.map(r => `<tr><td><code>${esc(r.call)}</code></td><td>${r.line}</td><td>${r.inPushState ? '<span style="color:var(--low)">YES</span>' : '<span style="color:var(--critical)">NO</span>'}</td><td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.85em">${esc(r.codeSnippet)}</td></tr>`).join('')}
+      </tbody></table>
+      ${f.seedCandidate ? `<p style="color:var(--low)"><strong>Seed candidate:</strong> ${esc(f.seedCandidate)}</p>` : ''}
+      <p style="color:var(--text-dim)"><strong>Risks:</strong> ${f.risks.join(', ')}</p>`;
+    html += makeCard(f.risk, f.class, f.method, f.file, f.context, body, `${f.randCalls.length} calls`);
+  }
+  html += '</div>';
+  box.innerHTML = html;
+}
+
+function renderPerClientTab() {
+  const box = document.getElementById('mt-perclient');
+  const items = [...data.perClientState.mods, ...data.perClientState.vanillaCritical].sort((a, b) => riskVal(b.risk) - riskVal(a.risk));
+  let html = `<div class="result-count">${items.length} findings (mods + vanilla critical)</div>`;
+  for (const f of items) {
+    const body = f.perClientRefs.map(p => `<div style="margin:2px 0"><code>${esc(p.desc)}</code> <span class="tag ${p.type}">${p.type}</span> L${p.line}</div>`).join('');
+    html += makeCard(f.risk, f.class, f.method, f.file, f.context, body, `${f.perClientRefs.length} refs`);
+  }
+  box.innerHTML = html;
+}
+
+function renderFlecksTab() {
+  const box = document.getElementById('mt-flecks');
+  const items = data.fleckMoteEmissions.mods.sort((a, b) => riskVal(b.risk) - riskVal(a.risk));
+  let html = `<div class="result-count">${items.length} findings</div>`;
+  for (const f of items) {
+    const body = `<p><strong>Fleck calls:</strong> ${f.flecks.map(x => `<code>${esc(x.call)}</code> L${x.line}`).join(', ')}</p>
+      <p>Has Rand: ${f.hasRandCalls ? '<span style="color:var(--critical)">YES</span>' : 'no'} | In PushState: ${f.inPushState ? '<span style="color:var(--low)">YES</span>' : '<span style="color:var(--critical)">NO</span>'}</p>`;
+    html += makeCard(f.risk, f.class, f.method, f.file, f.context, body, `${f.flecks.length} flecks`);
+  }
+  box.innerHTML = html;
+}
+
+function renderJobsTab() {
+  const box = document.getElementById('mt-jobs');
+  const items = data.jobCreation.mods.sort((a, b) => riskVal(b.risk) - riskVal(a.risk));
+  let html = `<div class="result-count">${items.length} findings</div>`;
+  for (const f of items) {
+    const body = f.jobs.map(j => `<div><code>${esc(j.call)}</code> L${j.line}</div>`).join('');
+    html += makeCard(f.risk, f.class, f.method, f.file, f.context, body, `${f.jobs.length} jobs`);
+  }
+  box.innerHTML = html;
+}
+
+function renderStaticsTab() {
+  const box = document.getElementById('mt-statics');
+  const items = data.staticMutables.mods;
+  let html = `<div class="result-count">${items.length} files with static mutables (${data.staticMutables.summary.mods} total)</div>`;
+  for (const f of items) {
+    const body = f.statics.map(s => `<div style="font-family:monospace;font-size:0.85em;margin:2px 0">L${s.line}: ${esc(s.text)}</div>`).join('');
+    html += `<div class="card"><div class="card-header" onclick="this.parentElement.classList.toggle('open')"><span class="cls">${esc(f.class)}</span><span class="fpath">${esc(f.file)}</span><span class="meta">${f.statics.length} fields <span class="chev">&#9654;</span></span></div><div class="card-body">${body}</div></div>`;
+  }
+  box.innerHTML = html;
+}
+
+function renderRootsTab() {
+  const box = document.getElementById('mt-roots');
+  const items = data.callGraph.riskyRoots;
+  let html = `<div class="result-count">${items.length} risky roots (critical + high)</div>`;
+  for (const f of items) {
+    const body = `<p><strong>SIM methods:</strong> ${f.simMethods.map(m => `<code>${esc(m)}</code>`).join(', ') || 'none'}</p>
+      <p><strong>UI methods:</strong> ${f.uiMethods.map(m => `<code>${esc(m)}</code>`).join(', ') || 'none'}</p>
+      <p><strong>Reasons:</strong> ${f.reasons.join(' | ')}</p>`;
+    html += `<div class="card"><div class="card-header" onclick="this.parentElement.classList.toggle('open')"><span class="risk ${f.risk}">${f.risk}</span><span class="cls">${esc(f.file)}</span><span class="meta">score: ${f.score} <span class="chev">&#9654;</span></span></div><div class="card-body">${body}</div></div>`;
+  }
+  box.innerHTML = html;
+}
+
+function renderEntryTab() {
+  const box = document.getElementById('mt-entry');
+  const ep = data.riskyVanillaEntryPoints;
+  let html = '';
+  for (const [key, e] of Object.entries(ep)) {
+    html += `<div class="entry-card">
+      <h4><span class="risk ${e.risk}">${e.risk}</span> ${esc(key)}</h4>
+      <p><strong>Methods:</strong> ${e.methods.map(m => `<code>${esc(m)}</code>`).join(', ')}</p>
+      <p><strong>Rand calls:</strong> ${e.randCalls.join(', ')}</p>
+      <p><strong>PushState:</strong> ${e.pushState ? '<span style="color:var(--low)">YES</span>' : '<span style="color:var(--critical)">NO</span>'} | <strong>Emits flecks:</strong> ${e.emitsFlecks ? 'YES' : 'no'}</p>
+      <p><strong>Seed candidates:</strong> ${e.seedCandidates.join(', ')}</p>
+      ${e.gatedBy ? `<p class="warn"><strong>Gated by:</strong> ${esc(e.gatedBy)}</p>` : ''}
+      ${e.note ? `<p class="warn"><strong>Note:</strong> ${esc(e.note)}</p>` : ''}
+    </div>`;
+  }
+  box.innerHTML = html;
+}
+
+// ============ SCANNER FORMAT ============
+
+function renderScanner() {
+  const s = data.summary;
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat"><strong>${s.totalFiles}</strong><span class="label">Files</span></div>
+    <div class="stat"><strong>${s.totalFindings}</strong><span class="label">Findings</span></div>
+    <div class="stat"><strong style="color:var(--critical)">${s.byRisk.critical}</strong><span class="label">Critical</span></div>
+    <div class="stat"><strong style="color:var(--high)">${s.byRisk.high}</strong><span class="label">High</span></div>
+    <div class="stat"><strong style="color:var(--medium)">${s.byRisk.medium}</strong><span class="label">Medium</span></div>
+    <div class="stat"><strong style="color:var(--low)">${s.byRisk.low}</strong><span class="label">Low</span></div>
+    <div class="stat"><strong>${s.randCallsTotal}</strong><span class="label">Rand Total</span></div>
+    <div class="stat"><strong style="color:var(--high)">${s.randCallsUnprotected}</strong><span class="label">Unprotected</span></div>
+    <div class="stat"><strong>${s.staticMutables}</strong><span class="label">Static Mutables</span></div>`;
+
+  document.getElementById('tabBar').innerHTML = '<button class="tab active" onclick="switchManifestTab(\'all\')">All Findings</button><button class="tab" onclick="switchManifestTab(\'roots\')">Risky Roots</button>';
+  document.getElementById('tabContent').innerHTML = '<div id="mt-all" class="tab-content active"></div><div id="mt-roots" class="tab-content"></div>';
+
+  // All findings
+  const allBox = document.getElementById('mt-all');
+  let html = '<div class="controls"><input type="text" id="rand-search" placeholder="Search..." oninput="filterCards(\'rand\')"><button class="filter-btn critical active" onclick="toggleRisk(this,\'rand\')">Critical</button><button class="filter-btn high active" onclick="toggleRisk(this,\'rand\')">High</button><button class="filter-btn medium active" onclick="toggleRisk(this,\'rand\')">Medium</button><button class="filter-btn low active" onclick="toggleRisk(this,\'rand\')">Low</button></div>';
+  const items = [];
+  for (const f of data.files) {
+    for (const fn of f.findings) {
+      items.push({ ...fn, file: f.file, class: f.class });
+    }
+  }
+  items.sort((a, b) => riskVal(b.risk) - riskVal(a.risk));
+  html += `<div class="result-count">${items.length} findings</div><div id="rand-list">`;
+  for (const f of items) {
+    const body = `
+      ${f.randCalls.length ? `<table><thead><tr><th>Call</th><th>Line</th><th>PushState?</th><th>Code</th></tr></thead><tbody>${f.randCalls.map(r => `<tr><td><code>${esc(r.call)}</code></td><td>${r.line}</td><td>${r.inPushState ? '<span style="color:var(--low)">YES</span>' : '<span style="color:var(--critical)">NO</span>'}</td><td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.85em">${esc(r.text)}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${f.perClientState ? `<p><strong>Per-client:</strong> ${f.perClientState.map(p => `<code>${esc(p.desc)}</code>`).join(', ')}</p>` : ''}
+      ${f.fleckMotes ? `<p><strong>Flecks:</strong> ${f.fleckMotes.map(x => esc(x.call)).join(', ')}</p>` : ''}
+      ${f.jobCreation ? `<p><strong>Jobs:</strong> ${f.jobCreation.map(j => esc(j.call)).join(', ')}</p>` : ''}
+      <p style="color:var(--text-dim)">Risks: ${f.risks.join(', ')}</p>`;
+    html += makeCard(f.risk, f.class, f.method, f.file, f.context, body, `${f.randCalls.length ? f.randCalls.length + ' rand' : ''}${f.perClientState ? ' | per-client' : ''}`);
+  }
+  html += '</div>';
+  allBox.innerHTML = html;
+
+  // Risky roots
+  const rootsBox = document.getElementById('mt-roots');
+  let rhtml = '';
+  for (const r of (data.riskyRoots || [])) {
+    rhtml += `<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:4px;font-size:0.86em">
+      <span class="risk ${r.risk}">${r.risk}</span> <code>${esc(r.class)}.${esc(r.method)}</code>
+      <span class="fpath">${esc(r.file)}</span>
+      ${r.perClientState?.length ? `<br><span style="color:var(--critical);font-size:0.8em">Per-client: ${r.perClientState.join(', ')}</span>` : ''}
+      <span style="color:var(--text-dim);font-size:0.8em;float:right">${r.randCalls} rand | ${r.risks.join(', ')}</span>
+    </div>`;
+  }
+  rootsBox.innerHTML = rhtml || '<p style="color:var(--text-dim)">No risky roots data</p>';
+}
+
+// ============ CALLGRAPH FORMAT ============
+
+function renderCallgraph() {
+  const s = data.summary;
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat"><strong>${s.filesWithFindings}</strong><span class="label">Files</span></div>
+    <div class="stat"><strong style="color:var(--critical)">${s.byRisk.critical}</strong><span class="label">Critical</span></div>
+    <div class="stat"><strong style="color:var(--high)">${s.byRisk.high}</strong><span class="label">High</span></div>
+    <div class="stat"><strong>${s.vanillaClassesExtended?.length || 0}</strong><span class="label">Vanilla Extended</span></div>
+    <div class="stat"><strong>${s.totalRandCalls}</strong><span class="label">Rand Calls</span></div>
+    <div class="stat"><strong>${s.totalPerClientRefs}</strong><span class="label">Per-Client</span></div>`;
+  document.getElementById('tabBar').innerHTML = '<button class="tab active">All Files</button>';
+  const box = document.getElementById('tabContent');
+  let html = '<div class="tab-content active">';
+  const items = data.files.sort((a, b) => (b.riskScore || 0) - (a.riskScore || 0));
+  for (const f of items) {
+    const body = `
+      ${f.classes?.length ? `<p><strong>Extends:</strong> ${f.classes.map(c => `${esc(c.name)} → ${c.extends?.map(e => `<code>${esc(e)}</code>`).join(', ')}`).join(' | ')}</p>` : ''}
+      <p><strong>SIM:</strong> ${f.simMethods?.map(m => `<code>${esc(m)}</code>`).join(', ') || 'none'}</p>
+      <p><strong>UI:</strong> ${f.uiMethods?.map(m => `<code>${esc(m)}</code>`).join(', ') || 'none'}</p>
+      <p>${f.riskReasons?.join(' | ') || ''}</p>`;
+    html += `<div class="card"><div class="card-header" onclick="this.parentElement.classList.toggle('open')"><span class="risk ${f.risk}">${f.risk}</span><span class="cls">${esc(f.file)}</span><span class="meta">score: ${f.riskScore || 0} <span class="chev">&#9654;</span></span></div><div class="card-body">${body}</div></div>`;
+  }
+  html += '</div>';
+  box.innerHTML = html;
+}
+
+// ============ UTILS ============
+
+function riskVal(r) { return { critical: 4, high: 3, medium: 2, 'medium-high': 2.5, low: 1 }[r] || 0; }
+
+function filterCards(prefix) {
+  // Simple search filter (works for any tab with id="X-list")
+  const q = document.getElementById(prefix + '-search')?.value?.toLowerCase() || '';
+  const list = document.getElementById(prefix + '-list');
+  if (!list) return;
+  let n = 0;
+  for (const card of list.children) {
+    const text = card.textContent.toLowerCase();
+    const show = !q || text.includes(q);
+    card.style.display = show ? '' : 'none';
+    if (show) n++;
+  }
+}
+
+function toggleRisk(btn) {
+  btn.classList.toggle('active');
+}
+
+// Auto-load on page open
+tryAutoLoad();
+</script>
+</body>
+</html>
